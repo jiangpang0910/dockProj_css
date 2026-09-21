@@ -1,0 +1,1458 @@
+{
+  "source": "Dock Schedule - Synthetic Sample.xlsx",
+  "berths": [
+    {
+      "name": "North Pier West",
+      "lengthFt": 410,
+      "kind": "berth",
+      "sortOrder": 1,
+      "timesSeen": 273
+    },
+    {
+      "name": "North Pier Face",
+      "lengthFt": 75,
+      "kind": "berth",
+      "sortOrder": 2,
+      "timesSeen": 272
+    },
+    {
+      "name": "North Pier East",
+      "lengthFt": 240,
+      "kind": "berth",
+      "sortOrder": 3,
+      "timesSeen": 272
+    },
+    {
+      "name": "Inner Channel",
+      "lengthFt": 55,
+      "kind": "berth",
+      "sortOrder": 4,
+      "timesSeen": 272
+    },
+    {
+      "name": "South Float West",
+      "lengthFt": 90,
+      "kind": "berth",
+      "sortOrder": 5,
+      "timesSeen": 272
+    },
+    {
+      "name": "South Float East",
+      "lengthFt": 90,
+      "kind": "berth",
+      "sortOrder": 6,
+      "timesSeen": 281
+    },
+    {
+      "name": "Small Craft Slips",
+      "lengthFt": null,
+      "kind": "section",
+      "sortOrder": 7
+    },
+    {
+      "name": "North Finger Piers",
+      "lengthFt": null,
+      "kind": "section",
+      "sortOrder": 8
+    }
+  ],
+  "vessels": [
+    {
+      "name": "Barge High Voyager",
+      "lengthFt": 100,
+      "draftFt": null,
+      "sources": [
+        "Science!A90"
+      ]
+    },
+    {
+      "name": "Barge Long Ledge",
+      "lengthFt": 40,
+      "draftFt": null,
+      "sources": [
+        "Science!A73"
+      ]
+    },
+    {
+      "name": "Barge Northern Drift",
+      "lengthFt": 52,
+      "draftFt": null,
+      "sources": [
+        "Science!A161"
+      ]
+    },
+    {
+      "name": "Barge Northern Marlin",
+      "lengthFt": 65,
+      "draftFt": 8,
+      "sources": [
+        "Science!A136"
+      ]
+    },
+    {
+      "name": "Barge Salt Ledge",
+      "lengthFt": 52,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A167"
+      ]
+    },
+    {
+      "name": "Barge Western Tern",
+      "lengthFt": 100,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A99"
+      ]
+    },
+    {
+      "name": "Barge Wild Horizon",
+      "lengthFt": 52,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A152"
+      ]
+    },
+    {
+      "name": "F/V Bright Compass",
+      "lengthFt": 120,
+      "draftFt": null,
+      "sources": [
+        "Science!A63"
+      ]
+    },
+    {
+      "name": "F/V Bright Heron",
+      "lengthFt": 32,
+      "draftFt": null,
+      "sources": [
+        "Science!A26"
+      ]
+    },
+    {
+      "name": "F/V Bright Horizon",
+      "lengthFt": 170,
+      "draftFt": null,
+      "sources": [
+        "Science!A30"
+      ]
+    },
+    {
+      "name": "F/V Clear Meridian",
+      "lengthFt": 24,
+      "draftFt": null,
+      "sources": [
+        "Science!A132"
+      ]
+    },
+    {
+      "name": "F/V Coral Ketch",
+      "lengthFt": 120,
+      "draftFt": null,
+      "sources": [
+        "Science!A125"
+      ]
+    },
+    {
+      "name": "F/V Far Petrel",
+      "lengthFt": 24,
+      "draftFt": null,
+      "sources": [
+        "Science!A134"
+      ]
+    },
+    {
+      "name": "F/V Golden Petrel",
+      "lengthFt": 145,
+      "draftFt": null,
+      "sources": [
+        "Science!A185"
+      ]
+    },
+    {
+      "name": "F/V Green Heron",
+      "lengthFt": 32,
+      "draftFt": null,
+      "sources": [
+        "Science!A153"
+      ]
+    },
+    {
+      "name": "F/V High Skua",
+      "lengthFt": 120,
+      "draftFt": null,
+      "sources": [
+        "Science!A144"
+      ]
+    },
+    {
+      "name": "F/V Iron Beacon",
+      "lengthFt": 100,
+      "draftFt": null,
+      "sources": [
+        "Science!A43"
+      ]
+    },
+    {
+      "name": "F/V Iron Ketch",
+      "lengthFt": 65,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A131"
+      ]
+    },
+    {
+      "name": "M/V Blue Osprey",
+      "lengthFt": 100,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A118"
+      ]
+    },
+    {
+      "name": "M/V Blue Tern",
+      "lengthFt": 52,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A103"
+      ]
+    },
+    {
+      "name": "M/V Clear Cove",
+      "lengthFt": 46,
+      "draftFt": null,
+      "sources": [
+        "Science!A225"
+      ]
+    },
+    {
+      "name": "M/V Clear Petrel",
+      "lengthFt": 46,
+      "draftFt": null,
+      "sources": [
+        "Science!A242"
+      ]
+    },
+    {
+      "name": "M/V Coral Drift",
+      "lengthFt": 100,
+      "draftFt": null,
+      "sources": [
+        "Science!A25"
+      ]
+    },
+    {
+      "name": "M/V Deep Gannet",
+      "lengthFt": 32,
+      "draftFt": null,
+      "sources": [
+        "Science!A216"
+      ]
+    },
+    {
+      "name": "M/V Deep Meridian",
+      "lengthFt": 145,
+      "draftFt": null,
+      "sources": [
+        "Science!A214"
+      ]
+    },
+    {
+      "name": "M/V Deep Reef",
+      "lengthFt": 100,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A96",
+        "Yachts!A114"
+      ]
+    },
+    {
+      "name": "M/V Deep Sextant",
+      "lengthFt": 24,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A15"
+      ]
+    },
+    {
+      "name": "M/V Far Anchor",
+      "lengthFt": 120,
+      "draftFt": null,
+      "sources": [
+        "Science!A72"
+      ]
+    },
+    {
+      "name": "M/V Far Fathom",
+      "lengthFt": 72,
+      "draftFt": null,
+      "sources": [
+        "Science!A218"
+      ]
+    },
+    {
+      "name": "M/V Golden Skua",
+      "lengthFt": 52,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A77"
+      ]
+    },
+    {
+      "name": "M/V Green Kestrel",
+      "lengthFt": 100,
+      "draftFt": null,
+      "sources": [
+        "Science!A106"
+      ]
+    },
+    {
+      "name": "M/V Grey Star",
+      "lengthFt": 120,
+      "draftFt": null,
+      "sources": [
+        "Science!A116"
+      ]
+    },
+    {
+      "name": "M/V Grey Tern",
+      "lengthFt": 65,
+      "draftFt": null,
+      "sources": [
+        "Science!A100"
+      ]
+    },
+    {
+      "name": "M/V High Current",
+      "lengthFt": 170,
+      "draftFt": null,
+      "sources": [
+        "Science!A48"
+      ]
+    },
+    {
+      "name": "M/V High Ledge",
+      "lengthFt": 40,
+      "draftFt": null,
+      "sources": [
+        "Science!A118"
+      ]
+    },
+    {
+      "name": "M/V High Strand",
+      "lengthFt": 145,
+      "draftFt": null,
+      "sources": [
+        "Science!A16"
+      ]
+    },
+    {
+      "name": "M/V Iron Harbor",
+      "lengthFt": 100,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A101"
+      ]
+    },
+    {
+      "name": "M/V Iron Heron",
+      "lengthFt": 100,
+      "draftFt": null,
+      "sources": [
+        "Science!A142"
+      ]
+    },
+    {
+      "name": "M/V Iron Sound",
+      "lengthFt": 145,
+      "draftFt": null,
+      "sources": [
+        "Science!A120"
+      ]
+    },
+    {
+      "name": "M/V Long Drift",
+      "lengthFt": 52,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A53"
+      ]
+    },
+    {
+      "name": "M/V Long Wind",
+      "lengthFt": 40,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A150"
+      ]
+    },
+    {
+      "name": "M/V Northern Gannet",
+      "lengthFt": 85,
+      "draftFt": null,
+      "sources": [
+        "Science!A165"
+      ]
+    },
+    {
+      "name": "M/V Northern Ketch",
+      "lengthFt": 120,
+      "draftFt": null,
+      "sources": [
+        "Science!A23"
+      ]
+    },
+    {
+      "name": "M/V Quiet Drift",
+      "lengthFt": 46,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A120"
+      ]
+    },
+    {
+      "name": "M/V Quiet Tern",
+      "lengthFt": 145,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A55"
+      ]
+    },
+    {
+      "name": "M/V Salt Wind",
+      "lengthFt": 170,
+      "draftFt": null,
+      "sources": [
+        "Science!A59"
+      ]
+    },
+    {
+      "name": "M/V Silver Kestrel",
+      "lengthFt": 46,
+      "draftFt": null,
+      "sources": [
+        "Science!A115"
+      ]
+    },
+    {
+      "name": "M/V Silver Ledge",
+      "lengthFt": 72,
+      "draftFt": null,
+      "sources": [
+        "Science!A155"
+      ]
+    },
+    {
+      "name": "M/V Swift Cove",
+      "lengthFt": 145,
+      "draftFt": null,
+      "sources": [
+        "Science!A157"
+      ]
+    },
+    {
+      "name": "M/V Swift Sextant",
+      "lengthFt": 72,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A176"
+      ]
+    },
+    {
+      "name": "M/V Swift Strand",
+      "lengthFt": 40,
+      "draftFt": null,
+      "sources": [
+        "Science!A79"
+      ]
+    },
+    {
+      "name": "M/V Western Anchor",
+      "lengthFt": 65,
+      "draftFt": null,
+      "sources": [
+        "Science!A234"
+      ]
+    },
+    {
+      "name": "M/V Western Petrel",
+      "lengthFt": 46,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A17"
+      ]
+    },
+    {
+      "name": "M/V Wild Dory",
+      "lengthFt": 52,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A107"
+      ]
+    },
+    {
+      "name": "M/V Wild Sextant",
+      "lengthFt": 100,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A166"
+      ]
+    },
+    {
+      "name": "M/V Wild Star",
+      "lengthFt": 24,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A81"
+      ]
+    },
+    {
+      "name": "M/Y Blue Fathom",
+      "lengthFt": 46,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A110"
+      ]
+    },
+    {
+      "name": "M/Y Clear Star",
+      "lengthFt": 120,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A57"
+      ]
+    },
+    {
+      "name": "M/Y Clear Wind",
+      "lengthFt": 32,
+      "draftFt": null,
+      "sources": [
+        "Science!A211"
+      ]
+    },
+    {
+      "name": "M/Y Coral Osprey",
+      "lengthFt": 170,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A27"
+      ]
+    },
+    {
+      "name": "M/Y Coral Wind",
+      "lengthFt": 40,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A146"
+      ]
+    },
+    {
+      "name": "M/Y Far Horizon",
+      "lengthFt": 170,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A49"
+      ]
+    },
+    {
+      "name": "M/Y Green Beacon",
+      "lengthFt": 145,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A149"
+      ]
+    },
+    {
+      "name": "M/Y Grey Heron",
+      "lengthFt": 52,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A19"
+      ]
+    },
+    {
+      "name": "M/Y Grey Horizon",
+      "lengthFt": 46,
+      "draftFt": null,
+      "sources": [
+        "Science!A2"
+      ]
+    },
+    {
+      "name": "M/Y High Anchor",
+      "lengthFt": 40,
+      "draftFt": null,
+      "sources": [
+        "Science!A150"
+      ]
+    },
+    {
+      "name": "M/Y Iron Gannet",
+      "lengthFt": 170,
+      "draftFt": null,
+      "sources": [
+        "Science!A29"
+      ]
+    },
+    {
+      "name": "M/Y Iron Petrel",
+      "lengthFt": 120,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A37"
+      ]
+    },
+    {
+      "name": "M/Y Long Dory",
+      "lengthFt": 52,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A11"
+      ]
+    },
+    {
+      "name": "M/Y Northern Cove",
+      "lengthFt": 32,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A33"
+      ]
+    },
+    {
+      "name": "M/Y Salt Dory",
+      "lengthFt": 85,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A59"
+      ]
+    },
+    {
+      "name": "M/Y Salt Gannet",
+      "lengthFt": 145,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A31"
+      ]
+    },
+    {
+      "name": "M/Y Swift Anchor",
+      "lengthFt": 100,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A72"
+      ]
+    },
+    {
+      "name": "M/Y Swift Dory",
+      "lengthFt": 85,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A35"
+      ]
+    },
+    {
+      "name": "M/Y Swift Kestrel",
+      "lengthFt": 52,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A25"
+      ]
+    },
+    {
+      "name": "M/Y Swift Petrel",
+      "lengthFt": 100,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A47"
+      ]
+    },
+    {
+      "name": "M/Y Western Current",
+      "lengthFt": 85,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A44"
+      ]
+    },
+    {
+      "name": "M/Y Western Strand",
+      "lengthFt": 65,
+      "draftFt": 4,
+      "sources": [
+        "Yachts!A1"
+      ]
+    },
+    {
+      "name": "M/Y Wild Meridian",
+      "lengthFt": 72,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A23"
+      ]
+    },
+    {
+      "name": "M/Y Wild Skua",
+      "lengthFt": 40,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A172"
+      ]
+    },
+    {
+      "name": "M/Y Wild Tern",
+      "lengthFt": 145,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A21"
+      ]
+    },
+    {
+      "name": "OSV Blue Harbor",
+      "lengthFt": 40,
+      "draftFt": null,
+      "sources": [
+        "Science!A3"
+      ]
+    },
+    {
+      "name": "OSV Blue Sound",
+      "lengthFt": 170,
+      "draftFt": null,
+      "sources": [
+        "Science!A163"
+      ]
+    },
+    {
+      "name": "OSV Clear Reef",
+      "lengthFt": 46,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A125"
+      ]
+    },
+    {
+      "name": "OSV High Petrel",
+      "lengthFt": 170,
+      "draftFt": null,
+      "sources": [
+        "Science!A190"
+      ]
+    },
+    {
+      "name": "OSV Long Reef",
+      "lengthFt": 120,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A128"
+      ]
+    },
+    {
+      "name": "OSV Salt Lantern",
+      "lengthFt": 46,
+      "draftFt": null,
+      "sources": [
+        "Science!A77"
+      ]
+    },
+    {
+      "name": "OSV Silver Harbor",
+      "lengthFt": 46,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A157"
+      ]
+    },
+    {
+      "name": "OSV Silver Skua",
+      "lengthFt": 24,
+      "draftFt": null,
+      "sources": [
+        "Science!A209"
+      ]
+    },
+    {
+      "name": "R/V Amber Drift",
+      "lengthFt": 170,
+      "draftFt": null,
+      "sources": [
+        "Science!A89"
+      ]
+    },
+    {
+      "name": "R/V Amber Ledge",
+      "lengthFt": 72,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A75"
+      ]
+    },
+    {
+      "name": "R/V Amber Marlin",
+      "lengthFt": 145,
+      "draftFt": null,
+      "sources": [
+        "Science!A95"
+      ]
+    },
+    {
+      "name": "R/V Amber Voyager",
+      "lengthFt": 24,
+      "draftFt": null,
+      "sources": [
+        "Science!A232"
+      ]
+    },
+    {
+      "name": "R/V Amber Wind",
+      "lengthFt": 32,
+      "draftFt": null,
+      "sources": [
+        "Science!A56"
+      ]
+    },
+    {
+      "name": "R/V Blue Drift",
+      "lengthFt": 120,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A135"
+      ]
+    },
+    {
+      "name": "R/V Bright Dory",
+      "lengthFt": 52,
+      "draftFt": null,
+      "sources": [
+        "Science!A13"
+      ]
+    },
+    {
+      "name": "R/V Bright Fathom",
+      "lengthFt": 46,
+      "draftFt": null,
+      "sources": [
+        "Science!A176"
+      ]
+    },
+    {
+      "name": "R/V Bright Meridian",
+      "lengthFt": 120,
+      "draftFt": null,
+      "sources": [
+        "Science!A192"
+      ]
+    },
+    {
+      "name": "R/V Clear Strand",
+      "lengthFt": 145,
+      "draftFt": null,
+      "sources": [
+        "Science!A110"
+      ]
+    },
+    {
+      "name": "R/V Clear Tern",
+      "lengthFt": 120,
+      "draftFt": null,
+      "sources": [
+        "Science!A81"
+      ]
+    },
+    {
+      "name": "R/V Coral Anchor",
+      "lengthFt": 120,
+      "draftFt": null,
+      "sources": [
+        "Science!A41"
+      ]
+    },
+    {
+      "name": "R/V Coral Meridian",
+      "lengthFt": 24,
+      "draftFt": null,
+      "sources": [
+        "Science!A113"
+      ]
+    },
+    {
+      "name": "R/V Coral Voyager",
+      "lengthFt": 46,
+      "draftFt": null,
+      "sources": [
+        "Science!A35"
+      ]
+    },
+    {
+      "name": "R/V Deep Heron",
+      "lengthFt": 46,
+      "draftFt": null,
+      "sources": [
+        "Science!A46"
+      ]
+    },
+    {
+      "name": "R/V Deep Ketch",
+      "lengthFt": 32,
+      "draftFt": null,
+      "sources": [
+        "Science!A61"
+      ]
+    },
+    {
+      "name": "R/V Deep Strand",
+      "lengthFt": 65,
+      "draftFt": null,
+      "sources": [
+        "Science!A230"
+      ]
+    },
+    {
+      "name": "R/V Deep Voyager",
+      "lengthFt": 120,
+      "draftFt": null,
+      "sources": [
+        "Science!A66"
+      ]
+    },
+    {
+      "name": "R/V Green Meridian",
+      "lengthFt": 32,
+      "draftFt": null,
+      "sources": [
+        "Science!A27"
+      ]
+    },
+    {
+      "name": "R/V Grey Current",
+      "lengthFt": 65,
+      "draftFt": null,
+      "sources": [
+        "Science!A128"
+      ]
+    },
+    {
+      "name": "R/V Grey Reef",
+      "lengthFt": 170,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A98"
+      ]
+    },
+    {
+      "name": "R/V Grey Tide",
+      "lengthFt": 65,
+      "draftFt": null,
+      "sources": [
+        "Science!A200"
+      ]
+    },
+    {
+      "name": "R/V High Dory",
+      "lengthFt": 100,
+      "draftFt": null,
+      "sources": [
+        "Science!A198"
+      ]
+    },
+    {
+      "name": "R/V High Drift",
+      "lengthFt": 120,
+      "draftFt": null,
+      "sources": [
+        "Science!A4"
+      ]
+    },
+    {
+      "name": "R/V High Reef",
+      "lengthFt": 72,
+      "draftFt": null,
+      "sources": [
+        "Science!A92",
+        "Science!A207"
+      ]
+    },
+    {
+      "name": "R/V High Sound",
+      "lengthFt": 65,
+      "draftFt": 4,
+      "sources": [
+        "Science!A33"
+      ]
+    },
+    {
+      "name": "R/V Iron Current",
+      "lengthFt": 100,
+      "draftFt": null,
+      "sources": [
+        "Science!A227"
+      ]
+    },
+    {
+      "name": "R/V Iron Ketch",
+      "lengthFt": 46,
+      "draftFt": null,
+      "sources": [
+        "Science!A68"
+      ]
+    },
+    {
+      "name": "R/V Iron Skua",
+      "lengthFt": 72,
+      "draftFt": null,
+      "sources": [
+        "Science!A10"
+      ]
+    },
+    {
+      "name": "R/V Iron Wind",
+      "lengthFt": 46,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A162"
+      ]
+    },
+    {
+      "name": "R/V Long Current",
+      "lengthFt": 65,
+      "draftFt": null,
+      "sources": [
+        "Science!A249"
+      ]
+    },
+    {
+      "name": "R/V Long Heron",
+      "lengthFt": 85,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A111"
+      ]
+    },
+    {
+      "name": "R/V Long Voyager",
+      "lengthFt": 100,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A161"
+      ]
+    },
+    {
+      "name": "R/V Northern Sextant",
+      "lengthFt": 52,
+      "draftFt": null,
+      "sources": [
+        "Science!A85"
+      ]
+    },
+    {
+      "name": "R/V Northern Skua",
+      "lengthFt": 120,
+      "draftFt": null,
+      "sources": [
+        "Science!A124"
+      ]
+    },
+    {
+      "name": "R/V Northern Sound",
+      "lengthFt": 46,
+      "draftFt": null,
+      "sources": [
+        "Science!A194"
+      ]
+    },
+    {
+      "name": "R/V Salt Drift",
+      "lengthFt": 85,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A154"
+      ]
+    },
+    {
+      "name": "R/V Salt Skua",
+      "lengthFt": 52,
+      "draftFt": null,
+      "sources": [
+        "Science!A203"
+      ]
+    },
+    {
+      "name": "R/V Silver Anchor",
+      "lengthFt": 170,
+      "draftFt": null,
+      "sources": [
+        "Science!A87"
+      ]
+    },
+    {
+      "name": "R/V Swift Heron",
+      "lengthFt": 120,
+      "draftFt": null,
+      "sources": [
+        "Science!A83"
+      ]
+    },
+    {
+      "name": "R/V Swift Reef",
+      "lengthFt": 170,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A151"
+      ]
+    },
+    {
+      "name": "R/V Western Fathom",
+      "lengthFt": 32,
+      "draftFt": null,
+      "sources": [
+        "Science!A233"
+      ]
+    },
+    {
+      "name": "R/V Western Ledge",
+      "lengthFt": 170,
+      "draftFt": null,
+      "sources": [
+        "Science!A143"
+      ]
+    },
+    {
+      "name": "R/V Wild Heron",
+      "lengthFt": 145,
+      "draftFt": null,
+      "sources": [
+        "Science!A250"
+      ]
+    },
+    {
+      "name": "R/V Wild Ledge",
+      "lengthFt": 120,
+      "draftFt": null,
+      "sources": [
+        "Science!A98"
+      ]
+    },
+    {
+      "name": "R/V Wild Marlin",
+      "lengthFt": 32,
+      "draftFt": null,
+      "sources": [
+        "Science!A14"
+      ]
+    },
+    {
+      "name": "S/V Amber Star",
+      "lengthFt": 32,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A29"
+      ]
+    },
+    {
+      "name": "S/V Amber Tide",
+      "lengthFt": 46,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A68"
+      ]
+    },
+    {
+      "name": "S/V Bright Drift",
+      "lengthFt": 32,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A105"
+      ]
+    },
+    {
+      "name": "S/V Bright Wind",
+      "lengthFt": 72,
+      "draftFt": null,
+      "sources": [
+        "Science!A45"
+      ]
+    },
+    {
+      "name": "S/V Clear Heron",
+      "lengthFt": 85,
+      "draftFt": null,
+      "sources": [
+        "Science!A183"
+      ]
+    },
+    {
+      "name": "S/V Clear Horizon",
+      "lengthFt": 85,
+      "draftFt": null,
+      "sources": [
+        "Science!A37"
+      ]
+    },
+    {
+      "name": "S/V Far Osprey",
+      "lengthFt": 52,
+      "draftFt": null,
+      "sources": [
+        "Science!A54"
+      ]
+    },
+    {
+      "name": "S/V Golden Star",
+      "lengthFt": 40,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A64"
+      ]
+    },
+    {
+      "name": "S/V Golden Tide",
+      "lengthFt": 40,
+      "draftFt": null,
+      "sources": [
+        "Science!A130"
+      ]
+    },
+    {
+      "name": "S/V High Tide",
+      "lengthFt": 24,
+      "draftFt": null,
+      "sources": [
+        "Science!A181"
+      ]
+    },
+    {
+      "name": "S/V Northern Harbor",
+      "lengthFt": 52,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A70"
+      ]
+    },
+    {
+      "name": "S/V Northern Meridian",
+      "lengthFt": 85,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A51"
+      ]
+    },
+    {
+      "name": "S/V Quiet Fathom",
+      "lengthFt": 40,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A138"
+      ]
+    },
+    {
+      "name": "S/V Quiet Sound",
+      "lengthFt": 24,
+      "draftFt": null,
+      "sources": [
+        "Science!A102"
+      ]
+    },
+    {
+      "name": "S/V Quiet Tide",
+      "lengthFt": 52,
+      "draftFt": null,
+      "sources": [
+        "Science!A122"
+      ]
+    },
+    {
+      "name": "S/V Western Cove",
+      "lengthFt": 24,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A66"
+      ]
+    },
+    {
+      "name": "S/V Wild Cove",
+      "lengthFt": 120,
+      "draftFt": null,
+      "sources": [
+        "Science!A39"
+      ]
+    },
+    {
+      "name": "S/V Wild Drift",
+      "lengthFt": 24,
+      "draftFt": null,
+      "sources": [
+        "Science!A18"
+      ]
+    },
+    {
+      "name": "S/V Wild Harbor",
+      "lengthFt": 65,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A171"
+      ]
+    },
+    {
+      "name": "S/V Wild Reef",
+      "lengthFt": 100,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A123"
+      ]
+    },
+    {
+      "name": "S/Y Clear Beacon",
+      "lengthFt": 170,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A62"
+      ]
+    },
+    {
+      "name": "S/Y Clear Sextant",
+      "lengthFt": 145,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A74"
+      ]
+    },
+    {
+      "name": "S/Y Deep Cove",
+      "lengthFt": 145,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A39"
+      ]
+    },
+    {
+      "name": "S/Y High Gannet",
+      "lengthFt": 100,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A13"
+      ]
+    },
+    {
+      "name": "S/Y Long Gannet",
+      "lengthFt": 24,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A79"
+      ]
+    },
+    {
+      "name": "Tug Deep Wind",
+      "lengthFt": 120,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A140"
+      ]
+    },
+    {
+      "name": "Tug Long Anchor",
+      "lengthFt": 170,
+      "draftFt": null,
+      "sources": [
+        "Yachts!A143"
+      ]
+    },
+    {
+      "name": "Tug Long Skua",
+      "lengthFt": 170,
+      "draftFt": null,
+      "sources": [
+        "Science!A28"
+      ]
+    },
+    {
+      "name": "Tug Salt Strand",
+      "lengthFt": 85,
+      "draftFt": null,
+      "sources": [
+        "Science!A138"
+      ]
+    }
+  ],
+  "issues": [
+    {
+      "code": "LENGTH_WITHOUT_VESSEL",
+      "tab": "Yachts",
+      "row": 6,
+      "text": "LOA: 145', Draft: 12'"
+    },
+    {
+      "code": "LENGTH_WITHOUT_VESSEL",
+      "tab": "Yachts",
+      "row": 83,
+      "text": "LOA: 145', Draft: 12'"
+    },
+    {
+      "code": "VESSEL_LENGTH_CONFLICT",
+      "vessel": "R/V High Sound",
+      "seen": [
+        32,
+        65
+      ],
+      "chosen": 65,
+      "sources": [
+        "Science!A33"
+      ]
+    },
+    {
+      "code": "VESSEL_LENGTH_CONFLICT",
+      "vessel": "R/V High Reef",
+      "seen": [
+        32,
+        72
+      ],
+      "chosen": 72,
+      "sources": [
+        "Science!A92",
+        "Science!A207"
+      ]
+    },
+    {
+      "code": "VESSEL_LENGTH_CONFLICT",
+      "vessel": "Barge Northern Marlin",
+      "seen": [
+        24,
+        65
+      ],
+      "chosen": 65,
+      "sources": [
+        "Science!A136"
+      ]
+    },
+    {
+      "code": "VESSEL_LENGTH_CONFLICT",
+      "vessel": "M/Y Western Strand",
+      "seen": [
+        52,
+        65
+      ],
+      "chosen": 65,
+      "sources": [
+        "Yachts!A1"
+      ]
+    },
+    {
+      "code": "VESSEL_LENGTH_CONFLICT",
+      "vessel": "M/V Deep Reef",
+      "seen": [
+        24,
+        100
+      ],
+      "chosen": 100,
+      "sources": [
+        "Yachts!A96",
+        "Yachts!A114"
+      ]
+    }
+  ],
+  "summary": {
+    "berths": 6,
+    "sections": 2,
+    "vessels": 164,
+    "issues": 7,
+    "vesselsLongerThanEveryBerth": []
+  }
+}
