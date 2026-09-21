@@ -91,7 +91,8 @@ shared/contract.ts   THE API contract: types + zod request schemas, imported by 
 frontend.md          the front-end prompt: design direction + screens + endpoint usage
 app/, src/           the Next.js app: pages + /api route handlers (layout: backend.md §1)
 db/                  migrations/0001_init.sql (the schema) + schema.test.mjs (36 DB rule tests, passing)
-backend/             Python prototypes: parse.py (grid parser to port), seed/ (default fleet → defaults.json)
+pipeline/            Python parse pipeline: xlsx → ParsedWorkbook JSON (regex + optional model); CLI, Vercel handler, 18 tests
+backend/             Python prototypes: parse.py (the pipeline's origin), seed/ (default fleet → defaults.json)
 data_analysis/       stats.py — sizing and data-quality numbers
 sample_data/         the provided workbook
 docs/                initial_thoughts.md (original notes, kept for reference)
@@ -128,6 +129,8 @@ Each has a default I used in the docs. Change the default here first, then the d
 | D12 | How far ahead can you book? | Manual bookings, measured from "today": **> 2 years → `FAR_FUTURE` warning** (catches typos like 2037 for 2027, still saveable); **> 5 years → `BEYOND_HORIZON` error** (no squatting berths for a decade; keeps R6 length edits from being frozen by far-off bookings). Imports exempt. Sanity bounds 1997-01-01 … 2050-12-31 for everything |
 | D13 | Multiple workspaces? | **Projects**, no login: the link is the key. "Open the sample" clones a read-only template per visitor, so reviewers never see each other's edits. Idle 14 days → deleted |
 | D14 | Upload format for your own data? | **Our template** (Berths / Vessels / Bookings sheets) *and* the legacy grid, auto-detected |
+| D15 | Who parses uploads? | **Python pipeline** (`pipeline/`), deployed as its own Vercel function. Regex first; Claude Haiku only for cells regex can't place (1 unique string in the sample), optional. TS keeps the planning window and the rules |
+| D16 | What does an upload bring in? | Only bookings touching the **planning window**: project "today" → `planTo` (default +5y). Violations are flagged as issues, never a wholesale reject |
 
 ## Status
 
@@ -138,7 +141,9 @@ Each has a default I used in the docs. Change the default here first, then the d
 - [x] Schema (`db/migrations/0001_init.sql`) with DB-level rule tests passing
 - [x] API contract (`shared/contract.ts`, typechecked)
 - [ ] Backend: rules + services + API
-- [ ] Importer (port `parse.py` to TypeScript)
+- [x] `rules.ts` + dates (29 tests)
+- [x] Python parse pipeline (`pipeline/`, 18 tests; sample → 2,047 rows, 8 berths, 641 vessels)
+- [ ] Importer staging in TS (window + rules), API routes
 - [ ] Frontend
 - [ ] Tests for the rules (adjacent / same-day / contained / identical ranges)
 - [ ] How-to-run section (fill in once there is something to run)

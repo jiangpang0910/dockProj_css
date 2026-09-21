@@ -1,0 +1,152 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ───────── Harbormaster's chart table ─────────
+   Palette tokens (frontend.md §2). Semantic names, then shadcn's variables mapped onto them,
+   so every stock component inherits the look. Conflict (--signal) is used for conflicts and errors ONLY. */
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-rule: var(--rule);
+  --color-harbor: var(--harbor);
+  --color-harbor-soft: var(--harbor-soft);
+  --color-brass: var(--brass);
+  --color-brass-soft: var(--brass-soft);
+  --color-signal: var(--signal);
+  --color-signal-soft: var(--signal-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains);
+  --font-heading: var(--font-inter);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+}
+
+:root {
+  --paper: #f6f4ef;          /* chart paper */
+  --surface: #ffffff;
+  --ink: #14212b;
+  --ink-muted: #5b6b78;
+  --rule: color-mix(in oklab, #5b6b78 16%, transparent);
+  --harbor: #1f5f8b;         /* harbor blue — primary actions, vessel bars */
+  --harbor-soft: color-mix(in oklab, #1f5f8b 12%, white);
+  --brass: #b7791f;          /* events */
+  --brass-soft: color-mix(in oklab, #b7791f 14%, white);
+  --signal: #c2410c;         /* conflicts and errors ONLY */
+  --signal-soft: color-mix(in oklab, #c2410c 10%, white);
+  --ok: #2f7d5b;
+  --ok-soft: color-mix(in oklab, #2f7d5b 12%, white);
+
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink);
+  --primary: var(--harbor);
+  --primary-foreground: #ffffff;
+  --secondary: color-mix(in oklab, var(--ink) 6%, var(--paper));
+  --secondary-foreground: var(--ink);
+  --muted: color-mix(in oklab, var(--ink) 5%, var(--paper));
+  --muted-foreground: var(--ink-muted);
+  --accent: color-mix(in oklab, var(--harbor) 8%, var(--surface));
+  --accent-foreground: var(--ink);
+  --destructive: var(--signal);
+  --border: color-mix(in oklab, var(--ink-muted) 22%, transparent);
+  --input: color-mix(in oklab, var(--ink-muted) 30%, transparent);
+  --ring: var(--harbor);
+  --radius: 0.5rem;
+}
+
+.dark {
+  --paper: #0e1620;          /* night water */
+  --surface: #16212d;
+  --ink: #e6edf2;
+  --ink-muted: #8fa1b0;
+  --rule: color-mix(in oklab, #8fa1b0 14%, transparent);
+  --harbor: #5aa9e6;
+  --harbor-soft: color-mix(in oklab, #5aa9e6 18%, #16212d);
+  --brass: #e0a84a;
+  --brass-soft: color-mix(in oklab, #e0a84a 18%, #16212d);
+  --signal: #f97350;
+  --signal-soft: color-mix(in oklab, #f97350 16%, #16212d);
+  --ok: #5cc596;
+  --ok-soft: color-mix(in oklab, #5cc596 16%, #16212d);
+  --primary-foreground: #0e1620;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv11", "ss01";
+  }
+}
+
+/* Numbers line up: every date, length and count uses this. */
+.num {
+  font-family: var(--font-jetbrains), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Chart-paper ground: faint fathom grid behind the app, never behind data. */
+.chart-ground {
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--rule) 1px, transparent 1px),
+    linear-gradient(90deg, var(--rule) 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-position: -1px -1px;
+}
+
+/* Closures: "no-go water" — diagonal hatching. */
+.hatch {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    color-mix(in oklab, var(--ink-muted) 38%, transparent) 0 2px,
+    transparent 2px 7px
+  );
+  background-color: color-mix(in oklab, var(--ink-muted) 10%, var(--surface));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

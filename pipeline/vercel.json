@@ -1,0 +1,5 @@
+{
+  "functions": {
+    "api/parse.py": { "maxDuration": 60 }
+  }
+}

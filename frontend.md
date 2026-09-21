@@ -87,26 +87,54 @@ The first impression, so it gets the most design care. It's static, so it render
 ### 3.0b New project (`/new`)
 
 One page, three steps, all visible at once (not a multi-page wizard):
-1. **Name** (required, ≤ 80 characters).
+1. **Name** (required, ≤ 80 characters), and **Planning from**: a date defaulting to the real today. It becomes the
+   project's "today" (`ProjectInput.asOfDate`), the earliest date you're planning for. E.g. `2008-04-27` to plan
+   the 2008 season with the old workbook.
 2. **Starting point**, as three large radio cards:
    - **Default fleet**: "6 berths, 2 shared sections, 164 vessels from the WHOI workbook. No bookings." → `start:"defaults"`.
    - **Empty**: "Add berths and vessels yourself." → `start:"empty"`.
    - **Upload a spreadsheet**: "Your own fleet and bookings." → `start:"empty"`, then upload. The card expands to show:
      a **Download the template** link (`/dock-template.xlsx`), a one-line description of its three sheets
-     (Berths · Vessels · Bookings), a dropzone, and the note *"The original year-per-sheet workbook works too."*
+     (Berths · Vessels · Bookings), a dropzone, the note *"The original year-per-sheet workbook works too."*, and
+     **Planning until** (default: from + 5 years). Only bookings touching *from → until* are brought in.
 3. **Create** → `POST /api/projects`. With a file: then `POST /api/projects/<id>/imports` and go straight to that import's
    preview (3.7 step 2). Otherwise go to `/p/<id>`.
    Remember the id in `localStorage` as soon as the project exists, before the upload, so a failed upload doesn't lose it.
 
 
-### 3.1 Schedule (`/`, OP-01) — the home screen
+### 3.1 Calendar (`/p/[projectId]`, OP-01): the home screen, every view
 
-- Window control: Week / Month / Quarter, prev / next / "Today", date picker. Stored in URL: `/?from=2026-09-01&to=2026-09-30`.
-- Grid: one row per berth (sticky left column: name + length, e.g. `North Pier West · 410′`; sections marked "shared"), one column per day (sticky header with day number + weekday; weekends shaded; a vertical **today line**).
-- Bookings are bars spanning their inclusive days. Vessel bars show name + LOA; event bars show title with the event color; closures are hatched. Bars clipped by the window show a fade/arrow on the cut edge.
-- Section rows (shared) stack overlapping bars into lanes.
-- Click a bar → booking detail drawer (edit / cancel). Drag across empty cells in a berth row → opens New booking prefilled with that berth and range.
-- Data: `GET …/schedule?from&to`, one request per window.
+One screen, two independent controls. **Lens** is *whose* calendar; **scale** is *how much time*. Every combination is
+valid. All state lives in the URL, so every view is linkable:
+`/p/<pid>?lens=berths|berth|vessels|vessel&id=<berthId|vesselId>&scale=day|week|month|quarter|year&date=YYYY-MM-DD`
+(`date` = the anchor; the window is computed from it. Weeks start Monday. Defaults: `lens=berths`, `scale=month`, `date=today`.)
+
+| Lens → / Scale ↓ | **All berths** (the whole port) | **One berth** | **All vessels** | **One vessel** |
+|---|---|---|---|---|
+| **Day** | *Dock board*: a card per berth with who's there, "arriving today", "departing today", or **Free** (with length) | Agenda: today's occupant, plus the previous and next bookings with gaps ("free for 12 days") | *In port today*: vessels at the dock, their berth and days left | Where it is today; where it was last and goes next |
+| **Week** | Timeline: berths × 7 day columns, bars with names and LOA | 7-day strip, bars full height | Timeline: vessels × 7 days, bars labelled by **berth** | 7-day strip |
+| **Month** | Timeline: berths × ~31 days (the classic grid) | **Month calendar** (7 × 6 cells), bars spanning cells | Timeline: vessels × ~31 days | Month calendar, cells coloured by berth |
+| **Quarter** | Timeline, narrow day columns, names shown when they fit | 3 month calendars | Timeline | 3 month calendars |
+| **Year** | **Heatmap**: berths × 365 days, occupied/free, month ticks. Click a month to go to month scale | 12 mini month calendars + "occupied N of 365 days" | Vessels ranked by days in port, with a sparkline per vessel | 12 mini months + days in port, by berth |
+
+Across every view:
+- **Header row** (all lenses, week and up): a thin *occupancy strip*, the % of exclusive berths taken each day. Its peak
+  and trough are what a coordinator scans for.
+- **Timelines** have a sticky left column (berth: `North Pier West · 410′`, sections marked *shared*; vessel:
+  `R/V High Drift · 120′`) and a sticky day header with weekday letters and a **today line**. Weekends are shaded.
+- **Bars:** vessels show name + LOA; events use the event colour; closures are hatched. A bar cut off by the window shows
+  a fade and an arrow on the cut edge. Section rows stack overlapping bars into lanes (greedy, by start date).
+- **Vessel lenses** show only vessel bookings. A toggle "Also show events & closures" adds them as a group of rows at the bottom.
+- **Filters** (a popover, reflected in the URL): occupant types (vessel / event / closure), include sections, berth subset.
+- **Navigation:** prev / next (one scale step), **Today** (to the project's "today"), a date picker, and keyboard `←/→`,
+  `t`, `d/w/m/q/y` for scale. Switching lens keeps scale and date.
+- **Interaction:** click a bar → booking drawer (edit / cancel). Drag across empty days in a berth row → New booking
+  prefilled with that berth and range. Click a vessel's name → its One-vessel lens.
+- **Data:** one `GET …/schedule?from&to` per window (every scale fits within `MAX_WINDOW_DAYS`), pivoted client-side by
+  lens. One vessel beyond the window ("last seen", "next visit") uses `GET …/bookings?vesselId=…&from&to` over ±1 year.
+
+Build the timeline once (rows × days, with row and bar renderers passed in) and the month calendar once. Every cell of
+the table above is one of those two components, a card list (day), or the heatmap (year).
 
 ### 3.2 New / edit booking (dialog or drawer; OP-04, OP-05)
 
@@ -147,9 +175,13 @@ Edit length/name/order; 409 lists affected bookings. Delete per row with confirm
 1. **Upload** — dropzone for `.xlsx` (refuse > 4 MB before sending) → `POST …/imports` (multipart). Show parsing progress
    (indeterminate; the request takes a few seconds). Beside it: **Download the template** (`/dock-template.xlsx`). The server
    detects the format (template or legacy grid); show `ImportRun.format` as a badge in the preview.
+   Above the dropzone: **Planning window**, *from* = the project's today (read-only here, with a link to change it)
+   and *until* (field `planTo`, default from + 5 years). The preview states it plainly: *"1,812 bookings outside
+   27 Apr 2008 – 15 Jan 2009 were skipped"* (`counts.outsideWindow`).
 2. **Preview** — the `ImportRun` summary: berths, vessels and bookings to add, issues by severity (error / warning / info). Actions: **Commit** (`POST /commit`, confirm dialog stating the count) and **Discard** (`DELETE`).
 3. **Issues** — tabs by severity, filter by code, cursor-paginated (`GET /issues`). Each issue: code badge, sheet + cell (`2010 · AF44`), message, and the parsed row (occupant, dates, raw berth label).
    Actions on rows that have a `row`: **Create booking** (choose berth — show the availability list inline: `GET …/availability?startDate&endDate&lengthFt=row.vesselLengthFt`; if `vesselLengthFt` is null, ask for it first and send it as `ResolveIssueInput.vesselLengthFt`) or **Dismiss** (optional reason). Resolved issues fade and move to a "Resolved" tab.
+   `MODEL_CLASSIFIED` rows get a small "classified by model" badge, so the user can double-check them.
    Info-level issues are collapsed by default ("3 December carry-overs dropped, 104 notes skipped…").
 4. Past imports list (`GET …/imports`).
 
@@ -222,14 +254,14 @@ Constants the UI needs: `DATE_MIN`/`DATE_MAX` (date-picker bounds), `HARD_HORIZO
 | PATCH | `/vessels/:id` | `Partial<VesselInput>` | `Vessel` | 409 if a new length breaks a booking |
 | DELETE | `/vessels/:id` | – | 204 | 409 if any booking references it |
 | GET | `/schedule` | `?from=&to=` (`ISODate`) | `ScheduleResponse` | one call for the grid; window ≤ `MAX_WINDOW_DAYS` |
-| GET | `/bookings` | `?from=&to=&berthId=&occupantType=&q=&includeCancelled=` | `BookingView[]` | `from`/`to` required; window ≤ `MAX_WINDOW_DAYS` |
+| GET | `/bookings` | `?from=&to=&berthId=&vesselId=&occupantType=&q=&includeCancelled=` | `BookingView[]` | `from`/`to` required; window ≤ `MAX_WINDOW_DAYS` |
 | POST | `/bookings` | `BookingInput` | `BookingView` (201) | 409 `OVERLAP` / `VESSEL_DOUBLE_BERTHED`; 422 others |
 | GET | `/bookings/:id` | – | `BookingView` | |
 | PATCH | `/bookings/:id` | `BookingPatch` | `BookingView` | 409 `STALE_VERSION` if `expectedVersion` is old |
 | POST | `/bookings/:id/cancel` | `{ expectedVersion }` | `BookingView` | soft delete; frees the berth |
 | POST | `/bookings/validate` | `ValidateRequest` | `ValidationResult` | dry run; never writes; 200 even when violations exist (404 only for unknown ids) |
 | GET | `/availability` | `?startDate=&endDate=&vesselId=` or `&lengthFt=` | `AvailabilityResult` | |
-| POST | `/imports` | multipart `file` (.xlsx, ≤ 4 MB) | `ImportRun` (201) | detects the format, parses, stages; writes **nothing** live |
+| POST | `/imports` | multipart `file` (.xlsx, ≤ 4 MB) + optional `planTo` | `ImportRun` (201) | window = project today → `planTo`; parses, stages; writes **nothing** live |
 | GET | `/imports` | – | `ImportRun[]` | newest first |
 | GET | `/imports/:id` | – | `ImportRun` | |
 | GET | `/imports/:id/issues` | `?severity=&code=&resolved=&cursor=&limit=` | `Page<ImportIssue>` | |

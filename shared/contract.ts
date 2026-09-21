@@ -38,7 +38,11 @@ export interface Project {
   lastOpenedAt: ISODateTime;
   counts: { berths: number; vessels: number; bookings: number };  // bookings = confirmed
 }
-export interface ProjectInput { name: string; start: ProjectOrigin; }  // "upload your own" = start: "empty", then POST an import
+export interface ProjectInput {
+  name: string;
+  start: ProjectOrigin;       // "upload your own" = start: "empty", then POST an import
+  asOfDate?: ISODate | null;   // the planning anchor ("today"). The sample ignores it (it ships 2019-07-01)
+}
 export interface ProjectPatch { name: string; }
 export const MAX_PROJECTS_PER_REQUEST = 50;      // GET /api/projects?ids=… (the ids this browser remembers)
 
@@ -171,13 +175,15 @@ export type IssueCode =
   | "UNKNOWN_FORMAT"                     // template or grid? neither → error, nothing staged
   | "TEMPLATE_BAD_HEADER"                // a template sheet's header row doesn't match → error, that sheet skipped
   | "INVALID_VALUE"                      // template cell: bad kind / length / date / type → error, row skipped
-  | "DUPLICATE_NAME";                    // same berth/vessel name twice in the file → warning, first kept
+  | "DUPLICATE_NAME"                     // same berth/vessel name twice in the file → warning, first kept
+  | "MODEL_CLASSIFIED";                  // info: regex couldn't classify the cell, the language model did. Review it
 export interface ImportedRow {
   berthLabel: string | null;       // raw berth label / Berth column, null for unlabeled overflow rows
   occupantType: OccupantType;
   title: string;
   vesselLengthFt: number | null;   // known length of the matched vessel; null for events or unknown
   startDate: ISODate; endDate: ISODate;
+  classifiedBy: "regex" | "template" | "model";   // how the occupant type was decided
 }
 export interface ImportIssue {
   id: Id; importId: Id;
@@ -192,7 +198,14 @@ export interface ImportIssue {
 export interface ImportRun {
   id: Id; filename: string; format: ImportFormat; status: ImportStatus;
   createdAt: ISODateTime; committedAt: ISODateTime | null;
-  counts: { sheets: number; cells: number; berths: number; vessels: number; bookings: number; issues: number }; // staged, to add
+  // Planning window: only rows touching [from, to] are staged. from = the project's "today" at upload time.
+  window: { from: ISODate; to: ISODate };
+  counts: {
+    sheets: number; cells: number;
+    berths: number; vessels: number; bookings: number;   // staged, to add on commit
+    outsideWindow: number;                               // parsed fine, but entirely before `from` or after `to`: skipped, not issues
+    issues: number;
+  };
   issueCounts: { error: number; warning: number; info: number };
 }
 export type ResolveIssueInput =
@@ -270,6 +283,7 @@ export const BerthPatchSchema = z.object({
 export const ProjectInputSchema = z.object({
   name: text.max(80),
   start: z.enum(["sample", "defaults", "empty"]),
+  asOfDate: isoDate.nullish(),
 }) satisfies z.ZodType<ProjectInput>;
 export const ProjectPatchSchema = z.object({ name: text.max(80) }) satisfies z.ZodType<ProjectPatch>;
 export const ProjectsQuerySchema = z.object({
@@ -288,6 +302,7 @@ const bool = z.enum(["true", "false"]).transform((v) => v === "true");
 export const WindowQuerySchema = z.object({ from: isoDate, to: isoDate });   // + MAX_WINDOW_DAYS check in the handler
 export const BookingsQuerySchema = WindowQuerySchema.extend({
   berthId: id.optional(),
+  vesselId: id.optional(),
   occupantType: z.enum(["vessel", "event", "closure"]).optional(),
   q: z.string().optional(),
   includeCancelled: bool.optional(),
@@ -297,6 +312,9 @@ export const AvailabilityQuerySchema = z.object({
   vesselId: id.optional(),
   lengthFt: z.coerce.number().positive().optional(),
 });
+// POST …/imports is multipart: `file` plus these optional text fields. from = project "today" (not a field: set "today" to move it)
+export const ImportFieldsSchema = z.object({ planTo: isoDate.optional() });   // default: from + HARD_HORIZON_YEARS
+
 export const VesselsQuerySchema = z.object({ q: z.string().optional(), lengthUnknown: bool.optional() });
 export const BerthsQuerySchema = z.object({ includeInactive: bool.optional() });
 export const IssuesQuerySchema = z.object({

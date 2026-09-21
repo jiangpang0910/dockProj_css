@@ -1,6 +1,6 @@
 # Infrastructure
 
-How the app is hosted, how a visitor gets a project, and how to run and reset it. It all fits in free tiers:
+How the app is hosted, how a visitor gets a project, and how to run and reset it. It all fits in free tiers (the optional model step costs fractions of a cent per upload):
 **$0/month**.
 
 ## 1. Shape
@@ -12,6 +12,9 @@ How the app is hosted, how a visitor gets a project, and how to run and reset it
                       │             parse (zod) → rules.ts → SQL          └─ dev branch   ← previews + local dev
                       ├─ /dock-template.xlsx   static file (public/)
                       └─ cron  /api/cron/cleanup  (daily)
+                              │
+                              └─ POST /api/parse ──► Vercel project #2: pipeline/ (Python)  ──► Claude Haiku (optional,
+                                 (x-parser-secret)      xlsx → ParsedWorkbook JSON              only unclassifiable cells)
 ```
 
 | Piece | Choice | Why |
@@ -55,6 +58,8 @@ cancel, move and break things freely, and the next reviewer still starts clean.
 | `DATABASE_URL` | Vercel (Production → Neon `main`, Preview → Neon `dev`), `.env.local` | Neon **pooled** URL (host contains `-pooler`), `?sslmode=require` |
 | `DATABASE_URL_UNPOOLED` | laptop / CI only | Neon **direct** URL, for migrations and seeding |
 | `CRON_SECRET` | Vercel | random string; Vercel Cron sends it as `Authorization: Bearer …` |
+| `PARSER_URL`, `PARSER_SECRET` | Vercel (app) | the parser project's URL + a shared secret. Unset locally → the app spawns `python3 -m pipeline.cli` |
+| `PARSER_SECRET`, `ANTHROPIC_API_KEY` | Vercel (parser project) | the key is optional: without it the model step is skipped |
 
 - **Local dev:** `vercel env pull .env.local`, then `npm run dev`, pointing at the Neon `dev` branch.
 - **Tests:** they don't need Neon at all. `rules.ts` is pure, and the schema tests run Postgres in-process with PGlite.
@@ -140,6 +145,7 @@ DELETE FROM project WHERE template_key IS NULL AND last_opened_at < now() - inte
 
 | Service | Tier | $ |
 |---|---|---|
-| Vercel | Hobby | 0 |
+| Vercel | Hobby (2 projects: app + parser) | 0 |
+| Anthropic API | pay-as-you-go, optional | ≈ $0.001 per upload (Haiku, one batched call of leftover strings); $0 if unset |
 | Neon | Free | 0 |
 | Domain | none: `*.vercel.app` | 0 |

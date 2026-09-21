@@ -25,12 +25,15 @@ src/server/
   domain/dates.ts             ISODate helpers: strict parse, compare, addDays/addYears, overlaps()
   domain/rules.ts             validateBooking(input, store, ctx): Violation[]   ← the ONLY place rules live
   services/                   projects.ts bookings.ts availability.ts imports.ts audit.ts settings.ts
-  import/                     detect.ts parseGrid.ts parseTemplate.ts classify.ts stage.ts
+  import/parser.ts            file bytes → ParsedWorkbook: HTTP to the Python parser (PARSER_URL) or, locally, `python3 -m pipeline.cli`
+  import/stage.ts             ParsedWorkbook → window filter → rules.ts (MemoryStore) → staged rows + issues
 src/lib/api/                  the UI's client (frontend.md §7.4)
 shared/contract.ts            types + zod schemas; both sides import it, nobody redeclares it
 db/migrations/0001_init.sql   the schema          db/schema.test.mjs   DB-level rule tests (PGlite)
 db/migrate.ts, db/seed.ts     npm run db:migrate / db:seed (infrastructure.md §4)
-backend/parse.py              prototype grid parser: the spec for import/parseGrid.ts
+pipeline/                     the Python parse pipeline (regex + optional model), own Vercel project (§6)
+shared/pipeline.ts            ParsedWorkbook: the JSON contract between pipeline/ and import/stage.ts
+backend/parse.py              the original prototype grid parser (pipeline/grid.py grew out of it)
 backend/seed/                 extract_defaults.py → defaults.json (the default fleet)
 public/dock-template.xlsx     the upload template (npm run template:build)
 test/
@@ -147,14 +150,14 @@ JSON in and out, dates as `ISODate`, same origin as the UI (no CORS).
 | PATCH | `/vessels/:id` | `Partial<VesselInput>` | `Vessel` | 409 if a new length breaks a booking |
 | DELETE | `/vessels/:id` | – | 204 | 409 if any booking references it |
 | GET | `/schedule` | `?from=&to=` (`ISODate`) | `ScheduleResponse` | one call for the grid; window ≤ `MAX_WINDOW_DAYS` |
-| GET | `/bookings` | `?from=&to=&berthId=&occupantType=&q=&includeCancelled=` | `BookingView[]` | `from`/`to` required; window ≤ `MAX_WINDOW_DAYS` |
+| GET | `/bookings` | `?from=&to=&berthId=&vesselId=&occupantType=&q=&includeCancelled=` | `BookingView[]` | `from`/`to` required; window ≤ `MAX_WINDOW_DAYS` |
 | POST | `/bookings` | `BookingInput` | `BookingView` (201) | 409 `OVERLAP` / `VESSEL_DOUBLE_BERTHED`; 422 others |
 | GET | `/bookings/:id` | – | `BookingView` | |
 | PATCH | `/bookings/:id` | `BookingPatch` | `BookingView` | 409 `STALE_VERSION` if `expectedVersion` is old |
 | POST | `/bookings/:id/cancel` | `{ expectedVersion }` | `BookingView` | soft delete; frees the berth |
 | POST | `/bookings/validate` | `ValidateRequest` | `ValidationResult` | dry run; never writes; 200 even when violations exist (404 only for unknown ids) |
 | GET | `/availability` | `?startDate=&endDate=&vesselId=` or `&lengthFt=` | `AvailabilityResult` | |
-| POST | `/imports` | multipart `file` (.xlsx, ≤ 4 MB) | `ImportRun` (201) | detects the format, parses, stages; writes **nothing** live |
+| POST | `/imports` | multipart `file` (.xlsx, ≤ 4 MB) + optional `planTo` | `ImportRun` (201) | window = project today → `planTo`; parses, stages; writes **nothing** live |
 | GET | `/imports` | – | `ImportRun[]` | newest first |
 | GET | `/imports/:id` | – | `ImportRun` | |
 | GET | `/imports/:id/issues` | `?severity=&code=&resolved=&cursor=&limit=` | `Page<ImportIssue>` | |
@@ -207,16 +210,45 @@ because Vercel runs in UTC. `PUT { asOfDate: null }` clears it. The sample templ
 
 ## 6. Import pipeline
 
-One upload endpoint and two file formats. `import/detect.ts` decides the format from the sheet names, so the user never picks:
+```
+ .xlsx ──► pipeline/ (Python)                          ──► ParsedWorkbook JSON ──► import/stage.ts (TS)                 ──► staging tables
+           "what does the file say?"                       shared/pipeline.ts      "what is allowed?"
+           1 detect format (sheet names)                   zod-validated           1 planning window: drop rows outside
+           2 parse: template tables | legacy grid                                  2 match berths/vessels (project + staged)
+           3 classify each cell: regex first,                                      3 rules.ts, earliest-first, MemoryStore
+             model only for what regex can't place                                 4 pass → staged row; fail → issue
+           4 normalise names, merge ranges, attach lengths
+```
 
-| Sheets present | Format | Parser |
-|---|---|---|
-| any of `Berths`, `Vessels`, `Bookings` (case-insensitive) | `template` | `parseTemplate.ts` |
-| else any sheet named as a 4-digit year | `legacy_grid` | `parseGrid.ts` |
-| neither | – | one `UNKNOWN_FORMAT` error; nothing is staged |
+**Split of work.** Python parses. It never decides whether a booking is *allowed*: it emits every row it could read,
+with parse-level issues. TypeScript owns the planning window and the rules (`rules.ts`), so manual booking and import
+still run the exact same rule code.
 
-Both parsers produce the same things: staged berths, staged vessels, candidate booking rows and issues. From there,
-stages 2–3 and commit are shared.
+**Nothing is rejected wholesale.** An upload always produces a preview. Rows that pass are staged. Rows that break a rule
+(overlap, too long, double-berthed, no berth) become **issues**, flagged with the row attached, for the user to resolve or
+dismiss (OP-10). Commit brings in the staged rows; the flagged ones wait.
+
+**Planning window.** `from` = the project's "today" at upload time (the anchor: *the earliest date you're planning
+for*); `to` = the `planTo` field, default `from + HARD_HORIZON_YEARS`. A row is kept if it **touches** the window
+(`start ≤ to && end ≥ from`, unclipped: a stay that began before `from` still occupies the berth). Everything else is
+counted in `counts.outsideWindow` and skipped, and so are parse issues whose row lies outside the window, so planning
+2008 isn't buried under 1998's problems. Issues without a row (e.g. `HEADER_YEAR_MISMATCH`) are kept. Seeding the
+sample template uses the full range (`DATE_MIN…DATE_MAX`).
+
+**Where Python runs.**
+- **Production:** a second Vercel project from the same repo (Root Directory `pipeline/`, Python runtime), exposing
+  `POST /api/parse` (body: the file bytes; header `x-parser-secret: $PARSER_SECRET`) → `ParsedWorkbook`. The Next app
+  calls it at `PARSER_URL`.
+- **Locally, in tests and seeding:** no server. `import/parser.ts` spawns `python3 -m pipeline.cli --stdin` and reads
+  JSON from stdout.
+
+**The model step (optional).** Regex classifies ~95% of cells (prefixes `R/V M/V …` → vessel; keyword lists → closure /
+event / operational note). What's left (odd free text like "Sea Scouts overnight" or "Hull survey – yard") goes to a
+small hosted model, **Claude Haiku 4.5**. There is one batched request per upload, containing only unique leftover
+strings, at temperature 0, with strict JSON output (`{text → vessel|event|closure|note|unknown}`). Model-classified rows
+carry `classifiedBy: "model"` plus an info issue `MODEL_CLASSIFIED`, so a person can check them. No `ANTHROPIC_API_KEY`
+means the step is skipped and those cells stay `UNPARSEABLE_CELL`: the pipeline never *needs* the model. The model only
+ever labels text; dates, berths and lengths always come from regex and the grid structure.
 
 ### The template (`public/dock-template.xlsx`): "our standard"
 
@@ -241,12 +273,12 @@ example row per sheet that the parser skips because its Name starts with `e.g.`.
 
 ### Legacy grid
 
-Turns the original year-per-sheet workbook into staged rows plus issues explaining everything else. `backend/parse.py`
-is a working prototype of stage 1, so port its logic rather than reinventing it. Berth labels shaped `Name - 410'` (and
+Turns the original year-per-sheet workbook into staged rows plus issues explaining everything else. `pipeline/grid.py`
+grew out of the `backend/parse.py` prototype. Berth labels shaped `Name - 410'` (and
 the two section labels) **stage a berth** if the project doesn't have one by that name. So a legacy upload into an
 *empty* project works, and it builds the same 8 berths the defaults have.
 
-**Stage 1 — parse the grid** (`import/parseGrid.ts`). Only sheets whose name is a 4-digit year are schedules; `8YR Dock Summary`, `Science`, `Yachts`, `Tours` are not (Science/Yachts feed stage 2).
+**Stage 1 — parse the grid** (`pipeline/grid.py`). Only sheets whose name is a 4-digit year are schedules; `8YR Dock Summary`, `Science`, `Yachts`, `Tours` are not (Science/Yachts feed stage 2).
 
 - A **month block** starts at a row whose column A is a month name (with or without a year, e.g. `JANUARY 2010` or `January`). It runs to the next month header.
 - **Day columns:** find the column holding the number `1` in the block's header rows (the numbered row is the header row, or one or two below it). Day *n* is that column + *n*−1. **Do not** trust the other day numbers — old sheets only number day 1.
