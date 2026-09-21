@@ -103,7 +103,7 @@ export function CalendarView() {
       <div className="space-y-4 p-3 sm:p-5">
         {/* ── controls ── */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <h1 className="mr-auto min-w-0 text-xl font-semibold tracking-tight sm:text-2xl">
+          <h1 className="mr-auto min-w-0 font-display text-2xl leading-none tracking-tight sm:text-[1.75rem]">
             {date ? title(state.scale, date) : <span className="inline-block h-7 w-48 animate-pulse rounded bg-muted" />}
           </h1>
           <div className="flex items-center gap-1">

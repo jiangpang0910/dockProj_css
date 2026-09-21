@@ -339,14 +339,43 @@ Staged conflicts belong to a previewed import (discard deletes them); commit ope
 - **Cloning** a template copies its open conflicts, so the sample project arrives with a real Conflicts tab
   (the sample workbook gives 282: ~240 `NO_BERTH`, ~29 `VESSEL_TOO_LONG`, a dozen `VESSEL_DOUBLE_BERTHED`, 1 `OVERLAP`).
 
-**Later: CP-SAT.** The table is the solver's input as-is. Variables: for each open conflict *c* and each active berth
-*b*, a boolean `x[c,b]` (plus, optionally, a small day shift). Hard constraints = the same rules: length fit (drop
-`x[c,b]` where the vessel is too long), no two claims on an exclusive berth on the same day (`AddNoOverlap` over
-optional intervals, with confirmed bookings as fixed intervals), one berth per vessel per day. Objective: maximise
-placed claims, penalise moving off the requested berth and shifting days. Output = a list of proposed `place` actions
-the user reviews and applies — the solver proposes, the rules still decide.
+**Auto-resolve (CP-SAT).** The user ticks conflicts (or all), presses **Solve**, reviews the proposals, and confirms
+them one by one or ticked in a batch (with select-all). Two endpoints; nothing is written until the second:
 
-**Expected result on the provided sample** (from `data_analysis/stats.py`; use as a golden-test range, not exact): ~2,400 bookings parsed, ~300 `NO_BERTH`, ~104 `ANNOTATION_SKIPPED`, ~89 `OUTSIDE_MONTH_COLUMNS`, 3 `DUPLICATE_CARRYOVER`, 2 `HEADER_YEAR_MISMATCH` blocks (2010), ~498 vessels.
+- `POST /conflicts/solve` → `SolveResult` (`src/server/services/solve.ts` → `pipeline/docksolve`). Read-only.
+- `POST /conflicts/apply` → one booking per segment through `insertBooking` (`source: "import"`), all confirmed
+  proposals in **one transaction**. Anything that changed since the solve (a berth taken, a conflict already
+  resolved) → 409 naming the conflict, nothing written: re-run the solve. The conflict becomes `placed`, with
+  `booking_ids` (`0004_conflict_bookings.sql`) holding every booking of a split stay.
+
+*Scope (option A):* only the selected conflicts move. Every confirmed booking is fixed.
+*Never proposed:* closures (a closure marks *that* berth unusable), vessels with no length (can't prove a fit),
+vessels longer than every berth, anything on a shared section. Each comes back in `unplaced` with a reason.
+
+*Model* (`pipeline/docksolve/__init__.py`, days as integers): each claim is up to `maxMoves + 1` consecutive
+**segments**. Segment 0 starts at the requested start + a shift in `[−maxEarlyDays, +maxDelayDays]`, each next one
+starts where the last ended, sizes add up to the stay's length (the stay never shrinks), each part of a split stay is
+at least `minSegmentDays`. Each segment picks one berth the vessel fits (optional interval per berth). Hard:
+`AddNoOverlap` per berth (with its confirmed bookings as fixed intervals) and per vessel (with that vessel's bookings
+anywhere, sections included). Lexicographic objective, each stage solved then held while the next improves:
+
+| stage | objective | default weights |
+|---|---|---|
+| 1 | maximise claims placed | — |
+| 2 | minimise disruption: delay·w + early·w + moves·w | delay 2/day, early 3/day, move 3 |
+| 3 | minimise wasted length Σ (berth − vessel) · days, foot-days | — |
+| 4 | minimise days off the requested berth (tie-break) | — |
+
+So 1 day late (2) beats a split (3), which beats 2 days late (4); slack can never be the reason a stay is delayed,
+split or left out. Defaults: `maxDelayDays 3, maxEarlyDays 0, maxMoves 1, minSegmentDays 2, timeLimitSec 10`.
+Sample workbook, all 282 conflicts: OPTIMAL in ~0.2 s solver time; 59 proposed, 194 need a vessel length first,
+27 closures, 2 with no room.
+
+*Runtime:* locally the TS service spawns `python3 -m pipeline.solve_cli`; deployed, it POSTs to
+`$SOLVER_URL` (default `$PARSER_URL`) `/api/solve` on the pipeline project, secret header as for the parser.
+OR-Tools + deps unpack to ~178 MB on Linux (ortools 78, pandas 40, numpy 56), under Vercel's 250 MB function limit.
+
+**Expected result on the provided sample** (parser after the 2026-09-21 audit; `python3 -m pipeline.audit <xlsx>` accounts for every non-empty or coloured cell, 0 unaccounted): 2,004 stays covering ~11,300 berth-days (a stay is a coloured bar: name in one cell, same fill across its days), 183 conflicts (118 `NO_BERTH` overflow rows under South Float East, 28 too long, 26 double-berthed, 11 overlap), ~222 `UNLABELED_BAR`, 62 `HEADER_AREA_TEXT` (the corrupted Nov/Dec 2010 headers), ~120 `ANNOTATION_SKIPPED`, 0 `OUTSIDE_MONTH_COLUMNS`, 497 vessels in the schedule of which only 20 are in the registry (the Science/Yachts tabs give 164 lengths; the file has no length for the rest). The '8YR Dock Summary' tab is not derived from the grids (it lists a berth, Marsh Landing, the grids never use) and is not imported.
 
 ## 7. Audit
 

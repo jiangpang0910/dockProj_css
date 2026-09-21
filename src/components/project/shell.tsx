@@ -1,6 +1,7 @@
 "use client";
 // The frame inside a project: left rail, top bar (project menu, "today" chip, New booking), content.
 import { useEffect, useState } from "react";
+import { ThemeToggle } from "@/components/app/theme-toggle";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -74,7 +75,7 @@ function Frame({ children }: { children: React.ReactNode }) {
   const isActive = (href: string) => (href === "" ? pathname === base : pathname.startsWith(base + href));
 
   return (
-    <div className="flex min-h-dvh">
+    <div className="scene scene-harbor flex min-h-dvh">
       <aside className="sticky top-0 hidden h-dvh w-52 shrink-0 flex-col border-r bg-surface/70 px-3 py-4 backdrop-blur md:flex">
         <Link href="/" className="mb-6 px-2" aria-label="Dockmaster home"><Logo /></Link>
         <nav aria-label="Project" className="flex flex-col gap-0.5">
@@ -101,6 +102,7 @@ function Frame({ children }: { children: React.ReactNode }) {
             <Link href="/" className="md:hidden" aria-label="Home"><Logo withWord={false} /></Link>
             <ProjectMenu />
             <div className="flex-1" />
+            <ThemeToggle className="hidden sm:inline-flex" />
             <TodayChip />
             <Button size="sm" onClick={() => editor.openNew()} className="gap-1.5">
               <Plus /> <span className="hidden sm:inline">New booking</span>
@@ -175,7 +177,7 @@ function ProjectMenu() {
 function Gone({ pid }: { pid: string }) {
   useEffect(() => { forgetProjects([pid]); }, [pid]);
   return (
-    <div className="chart-ground grid min-h-dvh place-items-center p-6">
+    <div className="scene scene-sunrise grid min-h-dvh place-items-center p-6">
       <div className="max-w-sm rounded-xl border bg-surface p-6 text-center shadow-sm">
         <Logo withWord={false} className="justify-center" />
         <h1 className="mt-4 text-lg font-semibold">This project no longer exists</h1>

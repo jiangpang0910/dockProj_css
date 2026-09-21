@@ -21,7 +21,7 @@ export function AuditScreen() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-3 sm:p-5">
-      <PageHeader title="Audit" sub="Re-checks no-overlap, fit and one-place-at-a-time over every confirmed booking. On a healthy schedule this finds nothing — that's the proof.">
+      <PageHeader title="Audit" sub="Re-checks every confirmed booking: no overlaps, every vessel fits, one place at a time.">
         <Button onClick={() => run.mutate()} disabled={run.isPending}>
           {run.isPending ? <Loader2 className="animate-spin" /> : <ShieldCheck />} {r ? "Run again" : "Run audit"}
         </Button>
@@ -29,7 +29,7 @@ export function AuditScreen() {
 
       {run.error && <ErrorBox message={errorMessage(run.error)} onRetry={() => run.mutate()} />}
       {!r && !run.isPending && !run.error && (
-        <div className="rounded-xl border border-dashed p-10 text-center text-sm text-ink-muted">Press <b>Run audit</b> to check every booking against every rule.</div>
+        <div className="rounded-xl border border-dashed bg-surface p-10 text-center text-sm text-ink-muted">Press <b>Run audit</b> to check every booking against every rule.</div>
       )}
       {run.isPending && <div className="h-48 animate-pulse rounded-xl bg-muted" />}
 

@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest import mock
 
 import openpyxl
+from openpyxl.styles import PatternFill
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "pipeline"))
@@ -23,7 +24,7 @@ SAMPLE = ROOT / "sample_data" / "Dock Schedule - Synthetic Sample.xlsx"
 ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ISSUE_CODES = {"NO_BERTH", "OUTSIDE_MONTH_COLUMNS", "UNPARSEABLE_CELL", "HEADER_YEAR_MISMATCH", "DUPLICATE_CARRYOVER",
                "ANNOTATION_SKIPPED", "UNKNOWN_FORMAT", "TEMPLATE_BAD_HEADER", "INVALID_VALUE", "DUPLICATE_NAME",
-               "MODEL_CLASSIFIED"}
+               "MODEL_CLASSIFIED", "HEADER_AREA_TEXT", "UNLABELED_BAR"}
 
 
 def check_shape(t, d):
@@ -61,6 +62,118 @@ def xlsx(build) -> bytes:
     return buf.getvalue()
 
 
+GREEN, BLUE = PatternFill("solid", fgColor="FF00B050"), PatternFill("solid", fgColor="FF0070C0")
+
+
+def grid_sheet(wb, year, month, day1_col=2, labels=("North Pier West - 410'",), numbers=True):
+    """A one-month block: header on row 1 (month in A, day numbers from day1_col), weekday row 2, berth rows from 3."""
+    ws = wb["%s" % year] if str(year) in wb.sheetnames else wb.create_sheet(str(year))
+    ws.cell(1, 1, datetime.date(int(year), month, 1).strftime("%B %Y").upper())
+    for d in range(1, 32):
+        if numbers:
+            ws.cell(1, day1_col + d - 1, d)
+        ws.cell(2, day1_col + d - 1, "M")
+    for i, lab in enumerate(labels):
+        if lab is not None:
+            ws.cell(3 + i, 1, lab)
+    return ws
+
+
+def bar(ws, row, c0, c1, name=None, fill=GREEN, name_col=None):
+    for c in range(c0, c1 + 1):
+        ws.cell(row, c).fill = fill
+    if name:
+        ws.cell(row, name_col or c0, name)
+
+
+def stays(d):
+    return sorted((r["berthLabel"], r["title"], r["startDate"], r["endDate"]) for r in d["rows"])
+
+
+class GridRules(unittest.TestCase):
+    def test_a_coloured_bar_is_one_stay(self):
+        d = dockparse.run(xlsx(lambda wb: bar(grid_sheet(wb, "2030", 3), 3, 5, 9, "R/V Bar")), use_model=False)
+        self.assertEqual(stays(d), [("North Pier West", "R/V Bar", "2030-03-04", "2030-03-08")])
+
+    def test_two_names_in_one_run_split_it(self):
+        def build(wb):
+            ws = grid_sheet(wb, "2030", 3)
+            bar(ws, 3, 2, 10, "R/V One")
+            ws.cell(3, 7, "R/V Two")
+        self.assertEqual(stays(dockparse.run(xlsx(build), use_model=False)),
+                         [("North Pier West", "R/V One", "2030-03-01", "2030-03-05"),
+                          ("North Pier West", "R/V Two", "2030-03-06", "2030-03-09")])
+
+    def test_name_in_a_differently_coloured_first_cell_still_owns_the_bar(self):
+        def build(wb):
+            ws = grid_sheet(wb, "2030", 3)
+            bar(ws, 3, 2, 2, "Barge Salt Dory", fill=BLUE)
+            bar(ws, 3, 3, 8)
+        self.assertEqual(stays(dockparse.run(xlsx(build), use_model=False)),
+                         [("North Pier West", "Barge Salt Dory", "2030-03-01", "2030-03-07")])
+
+    def test_colour_names_an_unnamed_bar_on_the_same_row(self):
+        def build(wb):
+            ws = grid_sheet(wb, "2030", 3)
+            bar(ws, 3, 2, 4)                      # unnamed, green
+            bar(ws, 3, 10, 12, "R/V Green")       # the row's only green name
+        d = dockparse.run(xlsx(build), use_model=False)
+        self.assertEqual(stays(d), [("North Pier West", "R/V Green", "2030-03-01", "2030-03-03"),
+                                    ("North Pier West", "R/V Green", "2030-03-09", "2030-03-11")])
+
+    def test_unnamed_bar_continues_last_months_stay_or_is_flagged(self):
+        def build(wb):
+            ws = grid_sheet(wb, "2030", 1)
+            bar(ws, 3, 30, 32, "R/V Long")        # Jan 29–31
+            ws.cell(8, 1, "FEBRUARY 2030")
+            for d in range(1, 29):
+                ws.cell(8, 1 + d, d)
+            ws.cell(9, 1, "North Pier West - 410'")
+            bar(ws, 9, 2, 4)                      # Feb 1–3, no name → continues R/V Long
+            ws.cell(10, 1, "Inner Channel - 55'")
+            bar(ws, 10, 6, 7, fill=BLUE)          # nothing to continue → flagged
+        d = dockparse.run(xlsx(build), use_model=False)
+        self.assertEqual(stays(d), [("North Pier West", "R/V Long", "2030-01-29", "2030-02-03")])
+        flagged = [i for i in d["issues"] if i["code"] == "UNLABELED_BAR"]
+        self.assertEqual([(i["cell"], i["row"]["berthLabel"], i["row"]["startDate"]) for i in flagged],
+                         [("F10", "Inner Channel", "2030-02-05")])
+
+    def test_weekday_aligned_month_dates_the_spill_columns(self):
+        # March 2030 starts on a Friday: day 1 in column F, so B..E are 25–28 February
+        def build(wb):
+            ws = grid_sheet(wb, "2030", 3, day1_col=6)
+            ws.cell(3, 3, "R/V Early")
+        self.assertEqual(stays(dockparse.run(xlsx(build), use_model=False)),
+                         [("North Pier West", "R/V Early", "2030-02-26", "2030-02-26")])
+
+    def test_day_one_is_found_by_majority_even_in_a_damaged_header(self):
+        def build(wb):
+            ws = grid_sheet(wb, "2030", 3)
+            for c in range(2, 8):
+                ws.cell(1, c, "R/V Debris")       # days 1–6 overwritten by text
+            ws.cell(3, 10, "R/V Real")            # column J = day 9
+        d = dockparse.run(xlsx(build), use_model=False)
+        self.assertEqual(stays(d), [("North Pier West", "R/V Real", "2030-03-09", "2030-03-09")])
+        self.assertEqual(sum(i["code"] == "HEADER_AREA_TEXT" for i in d["issues"]), 6)
+
+    def test_unlabeled_rows_under_a_section_belong_to_it_but_under_a_berth_are_overflow(self):
+        def build(wb):
+            ws = grid_sheet(wb, "2030", 3, labels=("South Float East - 90'", None, "Small craft slips (institution)", None))
+            ws.cell(4, 3, "R/V Overflow")
+            ws.cell(6, 4, "S/V Slip")
+        d = dockparse.run(xlsx(build), use_model=False)
+        self.assertEqual(stays(d), [("Small Craft Slips", "S/V Slip", "2030-03-03", "2030-03-03")])
+        self.assertEqual([i["row"]["title"] for i in d["issues"] if i["code"] == "NO_BERTH"], ["R/V Overflow"])
+
+    def test_ledger_has_no_holes_on_a_small_grid(self):
+        from dockparse.audit import audit
+        def build(wb):
+            ws = grid_sheet(wb, "2030", 3)
+            bar(ws, 3, 2, 5, "R/V A")
+            ws.cell(3, 9, 1400)
+        self.assertEqual(audit(xlsx(build))["unaccounted"], [])
+
+
 class SampleWorkbook(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -81,11 +194,36 @@ class SampleWorkbook(unittest.TestCase):
         self.assertEqual(self.d["format"], "legacy_grid")
         self.assertEqual(self.d["stats"]["sheets"], 23)
         self.assertTrue(1900 <= len(self.d["rows"]) <= 2300, len(self.d["rows"]))
-        self.assertTrue(200 <= codes["NO_BERTH"] <= 320, codes["NO_BERTH"])
+        self.assertTrue(100 <= codes["NO_BERTH"] <= 140, codes["NO_BERTH"])        # overflow rows under South Float East
         self.assertEqual(codes["DUPLICATE_CARRYOVER"], 3)
         self.assertEqual(codes["HEADER_YEAR_MISMATCH"], 2)
-        self.assertTrue(90 <= codes["ANNOTATION_SKIPPED"] <= 120)
-        self.assertTrue(80 <= codes["OUTSIDE_MONTH_COLUMNS"] <= 100)
+        self.assertTrue(100 <= codes["ANNOTATION_SKIPPED"] <= 130)
+        self.assertEqual(codes["OUTSIDE_MONTH_COLUMNS"], 0)    # weekday-aligned spill columns are dated now
+        self.assertEqual(codes["UNPARSEABLE_CELL"], 0)         # "Bunker barge" is a fuelling note
+        self.assertTrue(50 <= codes["HEADER_AREA_TEXT"] <= 70)  # the corrupted Nov/Dec 2010 headers
+        self.assertTrue(180 <= codes["UNLABELED_BAR"] <= 260)
+
+    def test_bars_are_read_as_stays(self):
+        # 2006 North Pier West: "R/V CLEAR SEXTANT" in U8, green through AF8 (Jan 20–31), named again on Feb 1–3 → one stay
+        r = next(r for r in self.d["rows"] if r["sheet"] == "2006" and r["cell"] == "U8")
+        self.assertEqual((r["title"], r["startDate"], r["endDate"]), ("R/V Clear Sextant", "2006-01-20", "2006-02-03"))
+        days = sum((datetime.date.fromisoformat(r["endDate"]) - datetime.date.fromisoformat(r["startDate"])).days + 1
+                   for r in self.d["rows"])
+        self.assertTrue(10_000 <= days <= 12_500, days)
+
+    def test_corrupted_2010_november_header_is_voted_right(self):
+        # day numbers are partly overwritten/shifted; the majority says day 1 is column C → C119.. are November days
+        self.assertFalse([r for r in self.d["rows"] if r["sheet"] == "2010" and r["cell"] in ("C118", "I118")])
+        nov = [r for r in self.d["rows"] if r["sheet"] == "2010" and r["startDate"].startswith("2010-11")]
+        self.assertTrue(nov)
+
+    def test_small_craft_slip_rows_keep_their_section(self):
+        slips = [r for r in self.d["rows"] if r["berthLabel"] == "Small Craft Slips"]
+        self.assertTrue(any(r["sheet"] == "2011" and r["cell"].endswith("104") for r in slips))
+
+    def test_every_cell_is_accounted_for(self):
+        from dockparse.audit import audit
+        self.assertEqual(audit(SAMPLE.read_bytes())["unaccounted"], [])
 
     def test_2010_sheet_years_inferred_not_trusted(self):
         # the 2010 sheet labels its last blocks "NOVEMBER 2018" / "DECEMBER 2018"
@@ -109,10 +247,14 @@ class ModelStep(unittest.TestCase):
 
         def fake(texts, api_key=None):
             seen["texts"] = list(texts)
-            return {"Bunker barge": "vessel"}, 1
+            return {"Big Blue Thing": "vessel"}, 1
+        def build(wb):
+            ws = grid_sheet(wb, "2030", 1)
+            ws["B3"] = "Big Blue Thing"
+            ws["D3"] = "R/V Known"
         with mock.patch.object(model, "label", side_effect=fake):
-            d = dockparse.run(SAMPLE.read_bytes())
-        self.assertEqual(seen["texts"], ["Bunker barge"])     # regex placed everything else
+            d = dockparse.run(xlsx(build))
+        self.assertEqual(seen["texts"], ["Big Blue Thing"])     # regex placed everything else
         self.assertEqual(d["stats"]["modelCalls"], 1)
         by_model = [r for r in d["rows"] if r["classifiedBy"] == "model"]
         self.assertTrue(by_model and all(r["occupantType"] == "vessel" for r in by_model))

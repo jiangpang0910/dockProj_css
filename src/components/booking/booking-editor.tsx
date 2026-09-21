@@ -214,7 +214,8 @@ function BookingForm({ mode, onClose }: { mode: FormMode; onClose: () => void })
 
         <div className="space-y-1.5">
           <Label htmlFor="bk-berth">Berth</Label>
-          <select id="bk-berth" {...register("berthId")}
+          {/* controlled: the berth list can arrive after the dialog opens, and an uncontrolled select would drop the prefill */}
+          <select id="bk-berth" value={v.berthId ?? ""} onChange={(e) => setValue("berthId", e.target.value)}
             className="h-8 w-full rounded-lg border border-input bg-surface px-2 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
             <option value="">Choose a berth…</option>
             {berths.data?.map((b) => (

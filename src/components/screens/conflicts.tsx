@@ -7,8 +7,9 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Loader2, Sparkles, X } from "lucide-react";
-import { CONFLICT_TYPES, type Conflict, type ConflictStatus, type ConflictType, type ResolveConflictInput } from "@shared/contract";
+import { CONFLICT_TYPES, type Conflict, type ConflictStatus, type ConflictType, type Id, type ResolveConflictInput, type SolveResult } from "@shared/contract";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,7 +21,12 @@ import { cn } from "@/lib/utils";
 import { OccupantIcon } from "@/components/booking/occupant";
 import { useBookingEditor } from "@/components/booking/booking-editor";
 import { useProjectCtx } from "@/components/project/project-context";
+import { DEFAULT_SOLVE_OPTIONS, ProposalReview, SolveOptionsPopover, describeOptions, type SolveSettings } from "./auto-resolve";
 import { ErrorBox, PageHeader } from "./page-header";
+
+/** Ticked conflicts: id → type, so a bulk dismiss of one type can drop exactly those ticks. */
+type Selection = Map<Id, ConflictType>;
+const MAX_SOLVE = 1000;   // SolveRequestSchema: conflictIds max
 
 export const CONFLICT_LABEL: Record<ConflictType, { name: string; help: string }> = {
   OVERLAP: { name: "Berth taken", help: "Another booking already holds the berth on some of these days." },
@@ -57,15 +63,48 @@ export function ConflictsScreen() {
   const items = useMemo(() => list.data?.pages.flatMap((p) => p.items) ?? [], [list.data]);
   const s = summary.data;
   const [bulk, setBulk] = useState(false);
+  const refresh = useRefresh();
+
+  // ── auto-resolve: tick conflicts → Solve → review proposals → Apply ──
+  const [picked, setPicked] = useState<Selection>(new Map());
+  const [opts, setOpts] = useState<SolveSettings>(DEFAULT_SOLVE_OPTIONS);
+  const [review, setReview] = useState<{ result: SolveResult; run: number } | null>(null);
+  const [selectingAll, setSelectingAll] = useState(false);
+  const canSelect = status === "open";
+  const sel: Selection = canSelect ? picked : new Map();
+  const filtered = !!(type || berthId || q.trim());
+  const editSel = (fn: (m: Selection) => void) => setPicked((prev) => { const next = new Map(prev); fn(next); return next; });
+  const shownAll = items.length > 0 && items.every((c) => sel.has(c.id));
+  const shownSome = items.some((c) => sel.has(c.id));
+  const matching = type ? s?.byType[type] : berthId ? s?.byBerth.find((b) => b.berthId === berthId)?.open : q.trim() ? undefined : s?.open;
+  const everything = !filtered && s != null && sel.size === s.open;   // every open conflict: send "all", not 1,000+ ids
+  const tooMany = !everything && sel.size > MAX_SOLVE;
+
+  const solve = useMutation({
+    mutationFn: () => api.solveConflicts({ conflictIds: everything ? "all" : [...sel.keys()], options: opts }),
+    onSuccess: (result) => setReview({ result, run: Date.now() }),
+  });
+
+  /** "Select all N that match": the list is paged, so walk the remaining pages (200 at a time) and tick them all. */
+  const selectAllMatching = async () => {
+    setSelectingAll(true);
+    try {
+      const found: Conflict[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await api.listConflicts({ ...filter, cursor, limit: 200 });
+        found.push(...page.items);
+        cursor = page.nextCursor ?? undefined;
+      } while (cursor);
+      editSel((m) => { for (const c of found) m.set(c.id, c.type); });
+    } catch (e) { toast.error(errorMessage(e)); }
+    finally { setSelectingAll(false); }
+  };
 
   return (
     <div className="mx-auto max-w-5xl space-y-5 p-3 sm:p-5">
       <PageHeader title="Conflicts"
-        sub="Rows from your uploads that read fine but couldn't be placed as written. Place each on a berth, or dismiss it. Nothing here is on the schedule yet.">
-        <Button variant="outline" size="sm" disabled title="An optimiser (CP-SAT) that proposes a berth for every open conflict at once. Coming later.">
-          <Sparkles /> Auto-resolve <span className="text-[10px] text-ink-muted">soon</span>
-        </Button>
-      </PageHeader>
+        sub="Rows from your uploads that read fine but couldn't be placed as written. Place each on a berth, dismiss it, or tick several and let Auto-resolve propose berths. Nothing here is on the schedule yet." />
 
       {/* totals by status */}
       <div className="grid grid-cols-3 divide-x rounded-xl border bg-surface">
@@ -104,7 +143,30 @@ export function ConflictsScreen() {
       {list.error ? <ErrorBox message={errorMessage(list.error)} onRetry={() => list.refetch()} /> :
        list.isLoading ? <div className="h-40 animate-pulse rounded-xl bg-muted" /> :
        items.length === 0 ? <Empty status={status} filtered={!!(type || berthId || q.trim())} total={s?.open ?? 0} /> : (
-        <ul className="space-y-2">{items.map((c) => <ConflictCard key={c.id} c={c} />)}</ul>
+        <>
+          {canSelect && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border bg-surface px-3 py-2 text-sm">
+              <label className="flex cursor-pointer items-center gap-2">
+                <Checkbox checked={shownAll} indeterminate={shownSome && !shownAll}
+                  onChange={() => editSel((m) => { for (const c of items) { if (shownAll) m.delete(c.id); else m.set(c.id, c.type); } })} />
+                Select all {items.length.toLocaleString()} shown
+              </label>
+              {shownAll && list.hasNextPage && (
+                <button type="button" disabled={selectingAll} onClick={selectAllMatching} className="text-harbor hover:underline disabled:opacity-60">
+                  {selectingAll ? "Selecting…" : matching != null ? `Select all ${matching.toLocaleString()} that match` : "Select all that match"}
+                </button>
+              )}
+              <span className="ml-auto text-xs text-ink-muted">Tick conflicts, then Solve for proposed berths.</span>
+            </div>
+          )}
+          <ul className="space-y-2">
+            {items.map((c) => (
+              <ConflictCard key={c.id} c={c} selectable={canSelect} checked={sel.has(c.id)}
+                onCheck={(on) => editSel((m) => { if (on) m.set(c.id, c.type); else m.delete(c.id); })}
+                onResolved={() => editSel((m) => { m.delete(c.id); })} />
+            ))}
+          </ul>
+        </>
       )}
       {list.hasNextPage && (
         <Button variant="outline" size="sm" onClick={() => list.fetchNextPage()} disabled={list.isFetchingNextPage}>
@@ -112,7 +174,32 @@ export function ConflictsScreen() {
         </Button>
       )}
 
-      {type && <BulkDismiss type={type} n={s?.byType[type] ?? 0} open={bulk} onOpenChange={setBulk} />}
+      {type && <BulkDismiss type={type} n={s?.byType[type] ?? 0} open={bulk} onOpenChange={setBulk}
+        onDone={() => editSel((m) => { for (const [id, t] of m) if (t === type) m.delete(id); })} />}
+
+      {sel.size > 0 && (
+        <div role="region" aria-label="Auto-resolve" className="sticky bottom-4 z-20 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border bg-surface/95 p-2.5 pl-4 shadow-lg backdrop-blur">
+          <span className="text-sm font-medium"><span className="num">{sel.size.toLocaleString()}</span> selected</span>
+          <button type="button" className="text-xs text-harbor hover:underline" onClick={() => setPicked(new Map())}>Clear</button>
+          <span className="hidden text-xs text-ink-muted md:inline">{describeOptions(opts)}</span>
+          <div className="ml-auto flex items-center gap-2">
+            <SolveOptionsPopover value={opts} onChange={setOpts} />
+            <Button size="sm" onClick={() => solve.mutate()} disabled={solve.isPending || tooMany}>
+              {solve.isPending ? <Loader2 className="animate-spin" /> : <Sparkles />}
+              {solve.isPending ? "Solving…" : `Solve ${sel.size.toLocaleString()}`}
+            </Button>
+          </div>
+          {tooMany && <p className="basis-full text-xs text-signal">Solve takes at most {MAX_SOLVE.toLocaleString()} at a time. Untick some, or filter by type.</p>}
+          {solve.error && <p role="alert" className="basis-full text-xs text-signal">{errorMessage(solve.error)}</p>}
+        </div>
+      )}
+
+      {review && (
+        <ProposalReview key={review.run} result={review.result}
+          onClose={() => setReview(null)}
+          onRerun={() => setReview(null)}
+          onApplied={(ids) => { editSel((m) => { for (const id of ids) m.delete(id); }); refresh(); setReview(null); }} />
+      )}
     </div>
   );
 }
@@ -144,13 +231,13 @@ function useRefresh() {
   return () => { for (const k of ["conflicts", "schedule", "bookings", "vessels", "availability", "audit"]) qc.invalidateQueries({ queryKey: [pid, k] }); };
 }
 
-function BulkDismiss({ type, n, open, onOpenChange }: { type: ConflictType; n: number; open: boolean; onOpenChange: (v: boolean) => void }) {
+function BulkDismiss({ type, n, open, onOpenChange, onDone }: { type: ConflictType; n: number; open: boolean; onOpenChange: (v: boolean) => void; onDone: () => void }) {
   const { api } = useProjectCtx();
   const refresh = useRefresh();
   const [reason, setReason] = useState("");
   const m = useMutation({
     mutationFn: () => api.dismissConflicts({ type, reason: reason.trim() || undefined }),
-    onSuccess: (r) => { toast.success(`Dismissed ${plural(r.dismissed, "conflict")}.`); refresh(); onOpenChange(false); },
+    onSuccess: (r) => { toast.success(`Dismissed ${plural(r.dismissed, "conflict")}.`); refresh(); onDone(); onOpenChange(false); },
   });
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -170,7 +257,8 @@ function BulkDismiss({ type, n, open, onOpenChange }: { type: ConflictType; n: n
   );
 }
 
-function ConflictCard({ c }: { c: Conflict }) {
+function ConflictCard({ c, selectable, checked, onCheck, onResolved }:
+  { c: Conflict; selectable: boolean; checked: boolean; onCheck: (on: boolean) => void; onResolved: () => void }) {
   const { pid, api } = useProjectCtx();
   const editor = useBookingEditor();
   const refresh = useRefresh();
@@ -191,7 +279,7 @@ function ConflictCard({ c }: { c: Conflict }) {
   });
   const resolve = useMutation({
     mutationFn: (body: ResolveConflictInput) => api.resolveConflict(c.id, body),
-    onSuccess: (x) => { toast.success(x.status === "placed" ? `Booked ${c.title}.` : "Dismissed."); setMode("none"); refresh(); },
+    onSuccess: (x) => { toast.success(x.status === "placed" ? `Booked ${c.title}.` : "Dismissed."); setMode("none"); onResolved(); refresh(); },
   });
   const place = (berthId: string) => resolve.mutate({
     action: "place", berthId, ...(moved ? { startDate: start, endDate: end } : {}),
@@ -200,8 +288,9 @@ function ConflictCard({ c }: { c: Conflict }) {
 
   const open = c.status === "open";
   return (
-    <li className={cn("rounded-xl border border-l-4 bg-surface p-3.5", open ? "border-l-signal" : "border-l-ink-muted/40 opacity-80")}>
+    <li className={cn("rounded-xl border border-l-4 bg-surface p-3.5", open ? "border-l-signal" : "border-l-ink-muted/40 opacity-80", checked && "ring-2 ring-harbor/40")}>
       <div className="flex flex-wrap items-center gap-2 text-sm">
+        {selectable && open && <Checkbox checked={checked} onChange={(e) => onCheck(e.target.checked)} aria-label={`Select ${c.title}, ${formatRange(c.startDate, c.endDate)}`} />}
         <span className="rounded bg-signal-soft px-1.5 py-0.5 text-[11px] font-semibold text-signal" title={CONFLICT_LABEL[c.type].help}>
           {CONFLICT_LABEL[c.type].name}
         </span>
@@ -237,7 +326,9 @@ function ConflictCard({ c }: { c: Conflict }) {
 
       {!open && (
         <p className="mt-1.5 text-xs text-ink-muted">
-          {c.status === "placed" ? <>Placed{c.bookingId && <> · <button type="button" className="text-harbor hover:underline" onClick={() => editor.openDetail(c.bookingId!)}>view booking</button></>}</> :
+          {c.status === "placed" ? <>Placed{c.bookingIds.length > 1 && <> in {c.bookingIds.length} parts</>}{c.bookingIds.map((id, i) => (
+              <span key={id}> · <button type="button" className="text-harbor hover:underline" onClick={() => editor.openDetail(id)}>{c.bookingIds.length > 1 ? `part ${i + 1}` : "view booking"}</button></span>
+            ))}</> :
            <>Dismissed{c.resolutionNote && <>: {c.resolutionNote}</>}</>}
         </p>
       )}

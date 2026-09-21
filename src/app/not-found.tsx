@@ -3,7 +3,7 @@ import { Logo } from "@/components/app/logo";
 
 export default function NotFound() {
   return (
-    <div className="chart-ground grid min-h-dvh place-items-center p-6">
+    <div className="scene scene-sunrise grid min-h-dvh place-items-center p-6">
       <div className="max-w-sm rounded-xl border bg-surface p-6 text-center">
         <Logo withWord={false} className="justify-center" />
         <h1 className="mt-4 text-lg font-semibold">Nothing moored here</h1>

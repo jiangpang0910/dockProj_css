@@ -1,37 +1,25 @@
 import { Logo } from "@/components/app/logo";
-import { ChartPreview } from "@/components/landing/chart-preview";
+import { ThemeToggle } from "@/components/app/theme-toggle";
 import { OpenSample, YourProjects } from "@/components/landing/landing-actions";
 
 // Static: renders instantly even while the database wakes up (frontend.md §3.0a).
+// The aerial photo has open water down the middle, so everything sits centred in that channel.
 export default function Landing() {
   return (
-    <div className="chart-ground min-h-dvh">
-      <div className="mx-auto flex max-w-6xl flex-col gap-14 px-5 py-8 sm:px-8 sm:py-12">
-        <header className="flex items-center justify-between">
+    <div className="scene scene-aerial min-h-dvh">
+      <div className="mx-auto flex min-h-dvh max-w-2xl flex-col items-center px-5 py-8 text-center sm:py-10">
+        <header className="relative flex w-full justify-center">
           <Logo />
-          <span className="text-xs text-ink-muted">Berth scheduling for a marine research facility</span>
+          <ThemeToggle className="absolute right-0" />
         </header>
-
-        <section className="grid items-center gap-10 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-          <div className="space-y-7">
-            <p className="text-xs font-semibold tracking-[0.16em] text-harbor uppercase">Dock schedule</p>
-            <h1 className="text-[2.35rem] leading-[1.08] font-semibold tracking-tight text-balance sm:text-5xl">
-              Every berth, every day — and no vessel where it can&rsquo;t fit.
-            </h1>
-            <p className="max-w-md text-[15px] leading-relaxed text-ink-muted">
-              Book vessels, events and closures onto the dock. Double bookings and too-long vessels are refused
-              before you save, with the booking in the way named and a free berth suggested.
-            </p>
-            <OpenSample />
-          </div>
-          <ChartPreview />
-        </section>
-
+        <main className="flex flex-1 flex-col items-center justify-center gap-7 py-16">
+          <h1 className="font-display text-[2rem] leading-[1.15] tracking-tight sm:text-[3.4rem]">
+            Every berth.<br />Every day.
+          </h1>
+          <p className="text-[15px] text-balance text-ink-muted">No double bookings. No vessel too long for its berth.</p>
+          <OpenSample />
+        </main>
         <YourProjects />
-
-        <footer className="border-t pt-5 text-xs text-ink-muted">
-          No sign-in: a project&rsquo;s link is its key. Projects nobody opens for 14 days are cleared away.
-        </footer>
       </div>
     </div>
   );

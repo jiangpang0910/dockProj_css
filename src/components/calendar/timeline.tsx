@@ -21,9 +21,10 @@ export interface TimelineRow {
 }
 export interface BarText { text: string; color?: string }
 
-const LABEL_W = 184;
-const LANE_H = 24;
-const PAD = 5;
+const LANE_H = 26;
+const PAD = 6;
+const MAX_GROW = 44;   // rows stretch to fill the screen, but never by more than this: a 3-row view stays a 3-row view
+const BOTTOM_GAP = 20;
 
 export function Timeline({
   rows, from, to, today, occupancy, barText, onOpen, onCreate, minColWidth, rowNoun,
@@ -47,7 +48,22 @@ export function Timeline({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  const LABEL_W = width < 560 ? 124 : 184;   // phones: leave the days most of the screen
   const colW = Math.max(minColWidth, (width - LABEL_W) / n);
+
+  // ── fill the screen: measure where the grid starts and hand the leftover height to the rows ──
+  const head = useRef<HTMLDivElement>(null);
+  const [room, setRoom] = useState(0);
+  useEffect(() => {
+    const measure = () => {
+      const el = wrap.current; if (!el) return;
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      setRoom(window.innerHeight - top - BOTTOM_GAP - (head.current?.offsetHeight ?? 0));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
   const trackW = colW * n;
   const setHover = useHover();
 
@@ -56,6 +72,11 @@ export function Timeline({
     const lanes = Math.max(1, ...placed.map((p) => p.lane + 1));
     return { row: r, placed, lanes };
   }), [rows, from, to]);
+  const groups = laid.filter(({ row }, i) => row.group && row.group !== laid[i - 1]?.row.group).length;
+  const natural = laid.reduce((h, { lanes }) => h + lanes * LANE_H + PAD * 2 + 1, 0) + groups * 25;
+  const grow = laid.length ? Math.max(0, Math.min(MAX_GROW, (room - natural) / laid.length)) : 0;
+  // bars thicken a little as rows grow, so they don't float in empty rows (never more than half the spare room)
+  const liftFor = (lanes: number) => Math.min(12, grow / (2 * lanes));
 
   // ── drag to create ──
   const [drag, setDrag] = useState<{ row: number; a: number; b: number } | null>(null);
@@ -89,7 +110,7 @@ export function Timeline({
   const monthStarts = days.map((d, i) => ({ d, i })).filter(({ d, i }) => i === 0 || parts(d)[2] === 1);
 
   return (
-    <div ref={wrap} className="relative w-full overflow-x-auto rounded-xl border bg-surface">
+    <div ref={wrap} className="timeline-panel relative w-full overflow-x-auto rounded-2xl border bg-surface">
       <div
         role="grid" tabIndex={0} aria-label={`Schedule, ${rowNoun} by day. Arrow keys move, Enter opens.`}
         onKeyDown={onKey} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
@@ -99,24 +120,24 @@ export function Timeline({
         <p className="sr-only" aria-live="polite">{focused ? focusedDesc : ""}</p>
 
         {/* ── header ── */}
-        <div className="sticky top-0 z-20 bg-surface/95 backdrop-blur" role="row">
-          <div className="flex border-b">
-            <div className="sticky left-0 z-10 flex shrink-0 items-end bg-surface px-3 pb-1 text-[11px] font-medium tracking-wide text-ink-muted uppercase" style={{ width: LABEL_W }}>
+        <div ref={head} className="sticky top-0 z-20 bg-surface" role="row">
+          <div className="flex border-b border-rule">
+            <div className="sticky left-0 z-10 flex shrink-0 items-end px-4 pb-2 text-[10px] font-medium tracking-wide text-ink-muted uppercase" style={{ width: LABEL_W }}>
               {rowNoun}
             </div>
             <div className="relative" style={{ width: trackW }}>
-              <div className="relative h-5">
+              <div className="relative h-6">
                 {monthStarts.map(({ d, i }) => (
-                  <span key={d} className="absolute top-1 pl-1 text-[11px] font-semibold" style={{ left: i * colW }}>{MONTHS[parts(d)[1] - 1]} {i === 0 || parts(d)[1] === 1 ? parts(d)[0] : ""}</span>
+                  <span key={d} className="absolute top-2 pl-1.5 text-[11px] font-semibold" style={{ left: i * colW }}>{MONTHS[parts(d)[1] - 1]} {i === 0 || parts(d)[1] === 1 ? parts(d)[0] : ""}</span>
                 ))}
               </div>
               <div className="flex">
                 {days.map((d, i) => (
                   <div key={d} role="columnheader" aria-label={formatDayShort(d)}
-                    className={cn("num flex shrink-0 flex-col items-center justify-end border-l pb-1 text-[10px] leading-tight",
-                      isWeekend(d) ? "bg-muted/70 text-ink-muted" : "text-ink-muted", i === todayIdx && "font-bold text-harbor")}
+                    className={cn("num flex shrink-0 flex-col items-center justify-end gap-0.5 pb-1.5 text-[10px] leading-tight text-ink-muted",
+                      isWeekend(d) && "opacity-60")}
                     style={{ width: colW }}>
-                    {showDayNum ? <><span className="opacity-70">{colW >= 26 ? WEEKDAY_LETTERS[weekday(d)] : ""}</span><span className="text-ink">{parts(d)[2]}</span></>
+                    {showDayNum ? <><span className="opacity-70">{colW >= 26 ? WEEKDAY_LETTERS[weekday(d)] : ""}</span><span className={cn("grid size-5 place-items-center rounded-full text-ink", i === todayIdx && "bg-lamp font-bold text-primary-foreground")}>{parts(d)[2]}</span></>
                       : weekday(d) === 0 ? <span className="text-ink">{parts(d)[2]}</span> : null}
                   </div>
                 ))}
@@ -124,8 +145,8 @@ export function Timeline({
             </div>
           </div>
           {occupancy && (
-            <div className="flex border-b" aria-label="Occupancy of exclusive berths per day">
-              <div className="sticky left-0 z-10 shrink-0 bg-surface px-3 py-0.5 text-[10px] text-ink-muted" style={{ width: LABEL_W }}>
+            <div className="flex border-b border-rule" aria-label="Occupancy of exclusive berths per day">
+              <div className="sticky left-0 z-10 shrink-0 px-4 py-0.5 text-[10px] text-ink-muted" style={{ width: LABEL_W }}>
                 Berths taken
               </div>
               <div className="flex h-5 items-end" style={{ width: trackW }}>
@@ -147,8 +168,8 @@ export function Timeline({
             backgroundImage: colW >= 10 ? "linear-gradient(90deg, var(--rule) 1px, transparent 1px)" : undefined,
             backgroundSize: `${colW}px 100%`,
           }}>
-            {days.map((d, i) => isWeekend(d) ? <div key={d} className="absolute inset-y-0 bg-muted/60" style={{ left: i * colW, width: colW }} /> : null)}
-            {todayIdx >= 0 && <div className="absolute inset-y-0 z-[5] w-0.5 bg-harbor" style={{ left: todayIdx * colW + colW / 2 - 1 }} />}
+            {days.map((d, i) => isWeekend(d) ? <div key={d} className="absolute inset-y-0 bg-ink/[0.035]" style={{ left: i * colW, width: colW }} /> : null)}
+            {todayIdx >= 0 && <div className="absolute inset-y-0 z-[3] w-0.5 bg-lamp" style={{ left: todayIdx * colW + colW / 2 - 1 }} />}
           </div>
 
           {laid.length === 0 && (
@@ -158,17 +179,17 @@ export function Timeline({
           {laid.map(({ row, placed, lanes }, r) => (
             <Fragment key={row.key}>
               {row.group && row.group !== laid[r - 1]?.row.group && (
-                <div className="flex border-b bg-muted/40">
-                  <div className="sticky left-0 bg-muted/40 px-3 py-1 text-[11px] font-semibold tracking-wide text-ink-muted uppercase" style={{ width: LABEL_W }}>{row.group}</div>
+                <div className="flex border-b border-rule bg-muted/40">
+                  <div className="sticky left-0 px-4 py-1 text-[11px] font-semibold tracking-wide text-ink-muted uppercase" style={{ width: LABEL_W }}>{row.group}</div>
                 </div>
               )}
-              <div role="row" aria-label={row.aria} className="flex border-b last:border-b-0">
-                <div role="rowheader" className="sticky left-0 z-10 flex shrink-0 items-center border-r bg-surface px-3 text-sm" style={{ width: LABEL_W, minHeight: lanes * LANE_H + PAD * 2 }}>
+              <div role="row" aria-label={row.aria} className="flex border-b border-rule last:border-b-0">
+                <div role="rowheader" className="timeline-label @container sticky left-0 z-10 flex shrink-0 items-center px-3 text-sm sm:px-4" style={{ width: LABEL_W, minHeight: lanes * LANE_H + PAD * 2 + grow }}>
                   {row.label}
                 </div>
                 <div
                   className={cn("relative shrink-0", row.berthId && onCreate && "cursor-crosshair")}
-                  style={{ width: trackW, height: lanes * LANE_H + PAD * 2 }}
+                  style={{ width: trackW, height: lanes * LANE_H + PAD * 2 + grow }}
                   onPointerDown={(e) => {
                     if (!row.berthId || !onCreate || e.button !== 0 || (e.target as HTMLElement).closest("[data-bar]")) return;
                     const i = idxAt(e, e.currentTarget);
@@ -206,15 +227,16 @@ export function Timeline({
                         onMouseEnter={(e) => setHover({ b, x: e.clientX, y: e.clientY })}
                         onMouseMove={(e) => setHover({ b, x: e.clientX, y: e.clientY })}
                         onMouseLeave={() => setHover(null)}
-                        className={cn("absolute z-[4] flex items-center gap-1 overflow-hidden rounded-[4px] border text-left text-[11px] leading-none transition-[filter] hover:brightness-95 hover:saturate-150",
+                        className={cn("absolute z-[4] flex items-center gap-1 overflow-hidden rounded-md border text-left text-[11px] leading-none transition-[filter] hover:brightness-95 hover:saturate-150",
                           occupantStyle[b.occupantType], c.cutStart && "rounded-l-none border-l-0", c.cutEnd && "rounded-r-none border-r-0")}
                         style={{
-                          left: i0 * colW + 1, width: w, top: PAD + lane * LANE_H, height: LANE_H - 3,
+                          left: i0 * colW + 1, width: w, top: PAD + (grow - lanes * liftFor(lanes)) / 2 + lane * (LANE_H + liftFor(lanes)), height: LANE_H + liftFor(lanes) - 4,
                           ...(t.color && b.occupantType === "vessel" ? { background: `color-mix(in oklab, ${t.color} 18%, var(--surface))`, borderColor: `color-mix(in oklab, ${t.color} 55%, transparent)` } : {}),
                           boxShadow: `inset 3px 0 0 ${c.cutStart ? "transparent" : t.color && b.occupantType === "vessel" ? t.color : "var(--bar-edge)"}`,
                         }}
                       >
                         {c.cutStart && <ChevronLeft aria-hidden className="size-3 shrink-0 text-ink-muted" />}
+                        {w <= 34 && w > 16 && !c.cutStart && <OccupantIcon type={b.occupantType} className="mx-auto size-3 opacity-70" />}
                         {w > 34 && <span className={cn("flex min-w-0 items-center gap-1", !c.cutStart && "pl-1.5")}>
                           <OccupantIcon type={b.occupantType} className="size-3 opacity-70" />
                           <span className="truncate font-medium">{t.text}</span>
@@ -236,8 +258,8 @@ export function Timeline({
 /** Row label for a berth: name + length (length is always visible — §2 principle 3). */
 export function BerthLabel({ name, lengthFt, shared, inactive }: { name: string; lengthFt: number | null; shared: boolean; inactive?: boolean }) {
   return (
-    <span className="flex w-full min-w-0 items-baseline justify-between gap-2 py-1">
-      <span className={cn("truncate font-medium", inactive && "text-ink-muted line-through")}>{name}</span>
+    <span className="flex w-full min-w-0 items-baseline justify-between gap-x-2 py-1 @max-[140px]:flex-col @max-[140px]:gap-0">
+      <span className={cn("max-w-full truncate font-medium", inactive && "text-ink-muted line-through")}>{name}</span>
       <span className="num shrink-0 text-xs text-ink-muted">{shared ? "shared" : ft(lengthFt)}</span>
     </span>
   );

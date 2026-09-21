@@ -43,11 +43,11 @@ export function TodayChip() {
   return (
     <Popover open={open} onOpenChange={(o) => { setOpen(o); if (o) setDraft(s.data!.asOfDate); }}>
       <PopoverTrigger
-        className={cn("inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors",
+        className={cn("inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs whitespace-nowrap transition-colors",
           override ? "border-brass/60 bg-brass-soft text-ink" : "bg-surface text-ink hover:bg-accent")}
         aria-label={`Today is ${formatDay(s.data.asOfDate)}${override ? ", overridden" : ""}. Change`}>
         <Anchor className={cn("size-3.5", override ? "text-brass" : "text-harbor")} />
-        <span className="text-ink-muted">{override ? "Viewing as of" : "Today"}</span>
+        <span className="hidden text-ink-muted sm:inline">{override ? "Viewing as of" : "Today"}</span>
         <span className="num font-medium">{formatDay(s.data.asOfDate)}</span>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80">

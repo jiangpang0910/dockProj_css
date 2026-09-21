@@ -17,13 +17,14 @@ interface ConflictRowDb {
   id: string; import_id: string | null; type: string; status: string;
   occupant_type: string; title: string; berth_label: string | null; berth_name: string | null; vessel_name: string | null;
   start_date: string; end_date: string; notes: string | null; sheet: string; cell: string | null; message: string;
-  berth_id: string | null; vessel_id: string | null; booking_id: string | null; resolution_note: string | null;
+  berth_id: string | null; vessel_id: string | null; booking_id: string | null; live_booking_ids: string[]; resolution_note: string | null;
   created_at: unknown; resolved_at: unknown;
   live_berth_name: string | null; berth_length_ft: number | null; vessel_length_ft: number | null;
 }
 
 const SELECT = `
-  SELECT c.*, be.name AS live_berth_name, be.length_ft AS berth_length_ft, v.length_ft AS vessel_length_ft
+  SELECT c.*, be.name AS live_berth_name, be.length_ft AS berth_length_ft, v.length_ft AS vessel_length_ft,
+         ARRAY(SELECT b.id FROM booking b WHERE b.id = ANY(c.booking_ids) ORDER BY b.start_date) AS live_booking_ids
   FROM conflict c
   LEFT JOIN berth be ON be.id = c.berth_id
   LEFT JOIN vessel v ON v.id = c.vessel_id`;
@@ -35,7 +36,7 @@ function toConflict(r: ConflictRowDb, blockers: ConflictBlocker[]): Conflict {
     vesselId: r.vessel_id, vesselLengthFt: r.vessel_length_ft,
     berthId: r.berth_id, berthName: r.live_berth_name ?? r.berth_name, berthLengthFt: r.berth_length_ft, berthLabel: r.berth_label,
     startDate: r.start_date, endDate: r.end_date, notes: r.notes, sheet: r.sheet, cell: r.cell, message: r.message,
-    blockers, bookingId: r.booking_id, bookingIds: r.booking_id ? [r.booking_id] : [], resolutionNote: r.resolution_note,
+    blockers, bookingId: r.booking_id, bookingIds: r.live_booking_ids ?? [], resolutionNote: r.resolution_note,
     createdAt: isoTime(r.created_at), resolvedAt: r.resolved_at ? isoTime(r.resolved_at) : null,
   };
 }
@@ -157,7 +158,8 @@ export async function resolveConflict(pid: string, id: string, input: ResolveCon
       vesselId: c.occupant_type === "vessel" ? vesselId : null, title: c.occupant_type === "vessel" ? null : c.title,
       startDate: input.startDate ?? c.start_date, endDate: input.endDate ?? c.end_date, notes: c.notes,
     }, { source: "import", asOfDate: asOfDate(p) });
-    await q.query("UPDATE conflict SET status = 'placed', booking_id = $2, resolved_at = now() WHERE id = $1", [id, booking.id]);
+    await q.query("UPDATE conflict SET status = 'placed', booking_id = $2, booking_ids = ARRAY[$2::uuid], resolved_at = now() WHERE id = $1",
+      [id, booking.id]);
     return load(q, pid, id);
   });
 }

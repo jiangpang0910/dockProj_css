@@ -58,7 +58,7 @@ def _run_grid(wb, use_model):
         else:
             title = c["text"]
         row = {"berthLabel": berth_name, "occupantType": kind if kind in ("vessel", "event", "closure") else "event",
-               "title": title, "startDate": c["start"].isoformat(), "endDate": c["end"].isoformat(), "notes": None,
+               "title": title, "startDate": c["start"].isoformat(), "endDate": c["end"].isoformat(), "notes": c.get("note"),
                "sheet": c["sheet"], "cell": c["cell"], "classifiedBy": by}
         if kind == "note":
             issues.append(_issue("ANNOTATION_SKIPPED", "info", c, f"\"{c['text']}\" reads as an operational note, not an "

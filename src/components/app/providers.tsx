@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ApiRequestError } from "@/lib/api/client";
+import { applyTheme } from "@/lib/theme";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [client] = useState(() => new QueryClient({
@@ -15,10 +16,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
       },
     },
   }));
-  // Follow the OS theme; the .dark class drives both our tokens and shadcn's dark: variants.
+  // The user's theme choice, or the OS theme when they haven't picked one (src/lib/theme.ts).
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => document.documentElement.classList.toggle("dark", mq.matches);
+    const apply = () => applyTheme();
     apply();
     mq.addEventListener("change", apply);
     return () => mq.removeEventListener("change", apply);

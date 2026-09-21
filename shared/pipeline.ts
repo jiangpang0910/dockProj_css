@@ -43,6 +43,7 @@ export const ParsedIssueSchema = z.object({
   code: z.enum([
     "NO_BERTH", "OUTSIDE_MONTH_COLUMNS", "UNPARSEABLE_CELL", "HEADER_YEAR_MISMATCH", "DUPLICATE_CARRYOVER",
     "ANNOTATION_SKIPPED", "UNKNOWN_FORMAT", "TEMPLATE_BAD_HEADER", "INVALID_VALUE", "DUPLICATE_NAME", "MODEL_CLASSIFIED",
+    "HEADER_AREA_TEXT", "UNLABELED_BAR",
   ]),
   severity: z.enum(["error", "warning", "info"]),
   sheet: z.string(),

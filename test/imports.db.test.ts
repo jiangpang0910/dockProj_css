@@ -242,6 +242,22 @@ describe("template format", () => {
   });
 });
 
+describe("deleting a project", () => {
+  it("works after imports whose staged rows point at existing berths (0005)", async () => {
+    for (let i = 0; i < 2; i++) {  // the 2nd upload stages against the berths the 1st one created
+      const run = await uploadImport(pid, "grid.xlsx", bytes, { parsed: grid, planTo: "2009-01-15" });
+      await commitImport(pid, run.id);
+    }
+    const { deleteProject } = await import("@/server/services/projects");
+    await deleteProject(pid);
+    expect((await getDb().query("SELECT count(*)::int AS n FROM project WHERE id = $1", [pid])).rows[0]).toEqual({ n: 0 });
+    // PGlite happens to order the cascades so the old FK passed here; Neon didn't. Pin the rule itself.
+    const { rows } = await getDb().query<{ r: string }>(
+      "SELECT confdeltype AS r FROM pg_constraint WHERE conname = 'import_staged_booking_berth_id_fkey'");
+    expect(rows).toEqual([{ r: "c" }]);
+  });
+});
+
 const SAMPLE = "sample_data/Dock Schedule - Synthetic Sample.xlsx";
 describe.skipIf(!fs.existsSync("pipeline/cli.py"))("the real pipeline (slow)", () => {
   it("imports the sample workbook end to end, full window, and the result audits clean", async () => {
@@ -250,7 +266,7 @@ describe.skipIf(!fs.existsSync("pipeline/cli.py"))("the real pipeline (slow)", (
     expect(run.format).toBe("legacy_grid");
     expect(run.counts.berths).toBe(8);
     expect(run.counts.bookings).toBeGreaterThan(1500);
-    expect(run.counts.conflicts).toBeGreaterThan(200);          // mostly NO_BERTH (unlabeled overflow rows)
+    expect(run.counts.conflicts).toBeGreaterThan(150);          // mostly NO_BERTH (overflow rows under South Float East)
     await commitImport(pid, run.id);
     expect((await conflictSummary(pid)).open).toBe(run.counts.conflicts);
     const audit = await runAudit(pid);

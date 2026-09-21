@@ -1,13 +1,14 @@
 // In-browser mock of the API (NEXT_PUBLIC_API_MOCK=1). Implements every row of frontend.md §7.2 against an
 // in-memory world persisted to localStorage, with the same status codes and ApiError shapes as the real server.
 import {
-  HARD_HORIZON_YEARS, MAX_WINDOW_DAYS,
+  DATE_MAX, DATE_MIN, HARD_HORIZON_YEARS, MAX_WINDOW_DAYS,
   CONFLICT_TYPES,
-  type ApiError, type AuditReport, type AvailabilityOption, type Berth, type Booking, type BookingInput,
+  type ApiError, type ApplyProposalsInput, type AuditReport, type AvailabilityOption, type Berth, type Booking, type BookingInput,
   type BookingView, type Conflict, type ConflictSummary, type ConflictType, type ImportIssue, type ImportRun, type ISODate,
-  type Project, type ProjectOrigin, type Settings, type Vessel, type Violation,
+  type Project, type ProjectOrigin, type Proposal, type ProposalSegment, type Settings, type SolveRequest, type SolveResult,
+  type SolveSkipReason, type Vessel, type Violation,
 } from "@shared/contract";
-import { addDays, addYears, diffDays, isISODate, todayIn } from "@/lib/dates";
+import { addDays, addYears, diffDays, isISODate, overlaps, spanDays, todayIn } from "@/lib/dates";
 import { defaultBerths, defaultVessels, newId, sampleProject } from "./fixtures";
 import { UnknownEntity, validate } from "./rules";
 
@@ -211,6 +212,105 @@ function findOrCreateVessel(p: MockProject, name: string, lengthFt: number | nul
   return v;
 }
 
+// ───────── auto-resolve: a greedy stand-in for the CP-SAT solver ─────────
+// Same request/response shapes and the same rules of the game (only the selected conflicts move; confirmed bookings are
+// fixed; closures, sections and vessels with no length are never proposed) but no optimality proof: conflicts are handled
+// one at a time, earliest first, each taking its cheapest option given what earlier ones took.
+const SOLVE_DEFAULTS: SolveResult["options"] = { maxDelayDays: 3, maxEarlyDays: 0, maxMoves: 1, minSegmentDays: 2, timeLimitSec: 10, weights: { delay: 2, early: 3, move: 3 } };
+
+function solveGreedy(p: MockProject, req: SolveRequest): SolveResult {
+  const t0 = performance.now();
+  const o: SolveResult["options"] = { ...SOLVE_DEFAULTS, ...req.options, weights: { ...SOLVE_DEFAULTS.weights, ...req.options?.weights } };
+  const all = p.conflicts ?? [];
+  const wanted = req.conflictIds === "all" ? all.filter((c) => c.status === "open")
+    : req.conflictIds.map((id) => all.find((c) => c.id === id)).filter((c): c is Conflict => !!c);
+
+  // what is already on the water: confirmed bookings, then each proposal as it is made
+  const taken = p.bookings.filter((b) => b.status === "confirmed").map((b) => ({ berthId: b.berthId, vesselId: b.vesselId, s: b.startDate, e: b.endDate }));
+  const berthFree = (id: string, s: ISODate, e: ISODate) => !taken.some((t) => t.berthId === id && overlaps(t.s, t.e, s, e));
+  const vesselFree = (id: string | null, s: ISODate, e: ISODate) => !id || !taken.some((t) => t.vesselId === id && overlaps(t.s, t.e, s, e));
+  const berths = sortedBerths(p).filter((b) => b.active && b.kind === "berth" && b.lengthFt != null);
+
+  const weight = (off: number) => (off > 0 ? off * o.weights.delay : -off * o.weights.early);
+  const offsets = [0, ...Array.from({ length: o.maxDelayDays }, (_, i) => i + 1), ...Array.from({ length: o.maxEarlyDays }, (_, i) => -(i + 1))]
+    .sort((a, b) => weight(a) - weight(b) || Math.abs(a) - Math.abs(b));
+
+  const proposals: Proposal[] = [];
+  const unplaced: SolveResult["unplaced"] = [];
+  const skip = (c: Conflict, reason: SolveSkipReason, detail: string) => unplaced.push({ conflictId: c.id, title: c.title, reason, detail });
+  let tried = 0;
+
+  const order = [...wanted].sort((a, b) => (a.startDate < b.startDate ? -1 : a.startDate > b.startDate ? 1 : 0));
+  for (const c of order) {
+    if (c.status !== "open") { skip(c, "NOT_OPEN", `Already ${c.status} since it was selected.`); continue; }
+    if (c.occupantType === "closure") { skip(c, "CLOSURE", "A closure marks that berth unusable, so moving it would make no sense."); continue; }
+    const len = c.occupantType === "vessel" ? p.vessels.find((v) => v.id === c.vesselId)?.lengthFt ?? null : null;
+    if (c.occupantType === "vessel" && len == null) { skip(c, "LENGTH_UNKNOWN", `${c.title} has no length on record, so it can't be shown to fit. Add its length first.`); continue; }
+    const fit = berths.filter((b) => len == null || (b.lengthFt ?? 0) >= len);
+    if (!fit.length) { skip(c, "NO_BERTH_LONG_ENOUGH", `${c.title} (${len}′) is longer than every active berth.`); continue; }
+    tried++;
+
+    const seg = (b: Berth, s: ISODate, e: ISODate): ProposalSegment =>
+      ({ berthId: b.id, berthName: b.name, berthLengthFt: b.lengthFt, startDate: s, endDate: e, slackFt: len != null && b.lengthFt != null ? b.lengthFt - len : null });
+    const slackOf = (b: Berth) => (b.lengthFt ?? 0) - (len ?? 0);
+    const tightest = (list: Berth[]) => [...list].sort((a, b) => slackOf(a) - slackOf(b) || (a.id === c.berthId ? -1 : b.id === c.berthId ? 1 : 0) || a.sortOrder - b.sortOrder)[0];
+
+    type Cand = { off: number; segs: ProposalSegment[]; total: number; slack: number; offAsked: number };
+    const pick: { best: Cand | null } = { best: null };
+    let vesselBlocked = 0;
+    const consider = (off: number, segs: ProposalSegment[]) => {
+      const cand: Cand = {
+        off, segs, total: weight(off) + (segs.length - 1) * o.weights.move,
+        slack: segs.reduce((n, x) => n + (x.slackFt ?? 0) * spanDays(x.startDate, x.endDate), 0),
+        offAsked: c.berthId ? segs.reduce((n, x) => n + (x.berthId === c.berthId ? 0 : spanDays(x.startDate, x.endDate)), 0) : 0,
+      };
+      const b = pick.best;   // cheapest disruption first, then least wasted length, then closest to the berth asked for
+      if (!b || cand.total < b.total || (cand.total === b.total && (cand.slack < b.slack || (cand.slack === b.slack && cand.offAsked < b.offAsked)))) pick.best = cand;
+    };
+    for (const off of offsets) {
+      const s = addDays(c.startDate, off), e = addDays(c.endDate, off);
+      if (s < DATE_MIN || e > DATE_MAX) continue;
+      if (!vesselFree(c.vesselId, s, e)) { vesselBlocked++; continue; }
+      const whole = tightest(fit.filter((b) => berthFree(b.id, s, e)));
+      if (whole) consider(off, [seg(whole, s, e)]);
+      const days = spanDays(s, e);
+      if (o.maxMoves >= 1 && days >= 2 * o.minSegmentDays) {    // two stops at most: this is a fake
+        for (let k = o.minSegmentDays; k <= days - o.minSegmentDays; k++) {
+          const mid = addDays(s, k - 1), next = addDays(s, k);
+          const a = tightest(fit.filter((b) => berthFree(b.id, s, mid))), b = tightest(fit.filter((x) => berthFree(x.id, next, e)));
+          if (a && b && a.id !== b.id) consider(off, [seg(a, s, mid), seg(b, next, e)]);
+        }
+      }
+    }
+    const chosen = pick.best;
+    if (!chosen) {
+      skip(c, "NO_ROOM", vesselBlocked === offsets.length
+        ? `${c.title} is already booked elsewhere on every allowed set of days.`
+        : `Every berth long enough is taken on every allowed set of days (up to ${plural(o.maxDelayDays, "day")} later${o.maxEarlyDays ? `, ${plural(o.maxEarlyDays, "day")} earlier` : ""}).`);
+      continue;
+    }
+    for (const x of chosen.segs) taken.push({ berthId: x.berthId, vesselId: c.vesselId, s: x.startDate, e: x.endDate });
+    proposals.push({
+      conflictId: c.id, title: c.title, occupantType: c.occupantType, vesselLengthFt: len,
+      requested: { berthId: c.berthId, berthName: p.berths.find((b) => b.id === c.berthId)?.name ?? null, startDate: c.startDate, endDate: c.endDate },
+      segments: chosen.segs, shiftDays: chosen.off,
+      cost: { delayDays: Math.max(0, chosen.off), earlyDays: Math.max(0, -chosen.off), moves: chosen.segs.length - 1, slackFootDays: chosen.slack, offRequestedDays: chosen.offAsked },
+    });
+  }
+
+  return {
+    status: proposals.length ? "OPTIMAL" : "NO_SOLUTION",
+    options: o,
+    stats: {
+      selected: wanted.length, considered: tried, placed: proposals.length, unplaced: unplaced.length,
+      moves: proposals.reduce((n, x) => n + x.cost.moves, 0), delayDays: proposals.reduce((n, x) => n + x.cost.delayDays, 0),
+      slackFootDays: proposals.reduce((n, x) => n + x.cost.slackFootDays, 0), solveMs: Math.round(performance.now() - t0),
+    },
+    proposals, unplaced,
+  };
+}
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+
 // ───────── router ─────────
 export async function mockFetch(url: string, init: RequestInit): Promise<Response> {
   const u = new URL(url, "http://mock.local");
@@ -222,7 +322,7 @@ export async function mockFetch(url: string, init: RequestInit): Promise<Respons
     return {};
   };
   // realistic latency; the validate call is fast like the real one
-  await sleep(seg.includes("validate") ? 90 : seg.includes("imports") && method === "POST" ? 900 : 160 + Math.random() * 180, init.signal);
+  await sleep(seg.includes("validate") ? 90 : seg.includes("imports") && method === "POST" ? 900 : seg.includes("solve") ? 700 : 160 + Math.random() * 180, init.signal);
   const w = load();
 
   if (seg[0] === "health") return json(200, { ok: true });
@@ -535,6 +635,44 @@ export async function mockFetch(url: string, init: RequestInit): Promise<Respons
           c.status = "dismissed"; c.resolutionNote = b.reason?.trim() || null; c.resolvedAt = nowTs(); n++;
         }
         save(); return json(200, { dismissed: n });
+      }
+      if (id === "solve" && method === "POST") {
+        const b = body() as unknown as SolveRequest;
+        if (b.conflictIds !== "all" && !(Array.isArray(b.conflictIds) && b.conflictIds.length)) return fail(400, "VALIDATION", "Select at least one conflict, or \"all\".");
+        return json(200, solveGreedy(p, b));
+      }
+      if (id === "apply" && method === "POST") {
+        const b = body() as unknown as ApplyProposalsInput;
+        if (!Array.isArray(b.proposals) || !b.proposals.length) return fail(400, "VALIDATION", "Nothing to apply.");
+        // all or nothing: book into the live list, and put it back exactly as it was on any failure
+        const before = p.bookings;
+        p.bookings = [...before];
+        const done: { c: Conflict; made: Booking[] }[] = [];
+        try {
+          for (const pr of b.proposals) {
+            const c = all.find((x) => x.id === pr.conflictId);
+            if (!c || c.status !== "open") {
+              p.bookings = before;
+              return fail(409, "CONFLICT", `${c ? `“${c.title}”` : "A conflict"} is no longer open, so nothing was written. Solve again.`);
+            }
+            const made: Booking[] = [];
+            for (const sg of pr.segments) {
+              const input: BookingInput = { berthId: sg.berthId, occupantType: c.occupantType, vesselId: c.vesselId, title: c.vesselId ? null : c.title, startDate: sg.startDate, endDate: sg.endDate };
+              const errors = validate(input, p, { source: "import", asOfDate: settings.asOfDate }).filter((v) => v.severity === "error");
+              if (errors.length) {
+                p.bookings = before;
+                return fail(409, "CONFLICT", `The schedule changed since this was solved (${errors[0].message}) Nothing was written. Solve again.`, errors);
+              }
+              const booking: Booking = { id: newId(), berthId: sg.berthId, occupantType: c.occupantType, vesselId: c.vesselId, title: c.title,
+                startDate: sg.startDate, endDate: sg.endDate, status: "confirmed", notes: null, source: "import", version: 1, createdAt: nowTs(), updatedAt: nowTs() };
+              p.bookings.push(booking); made.push(booking);
+            }
+            done.push({ c, made });
+          }
+        } catch (e) { p.bookings = before; throw e; }
+        for (const { c, made } of done) { c.status = "placed"; c.bookingId = made[0].id; c.bookingIds = made.map((m) => m.id); c.resolvedAt = nowTs(); }
+        save();
+        return json(200, { placed: done.length, bookingIds: done.flatMap((d) => d.made.map((m) => m.id)) });
       }
       const c = all.find((x) => x.id === id);
       if (!c) return fail(404, "NOT_FOUND", "No such conflict.");

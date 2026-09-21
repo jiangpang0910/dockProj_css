@@ -23,7 +23,7 @@ export function OpenSample() {
   const full = open.error instanceof ApiRequestError && open.error.status === 503;
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap justify-center gap-3">
         <Button size="lg" className="h-11 px-5 text-[15px]" disabled={open.isPending || open.isSuccess} onClick={() => open.mutate()}>
           {open.isPending || open.isSuccess ? <Loader2 className="animate-spin" /> : null}
           {open.isPending || open.isSuccess ? (slow ? "Waking the database…" : "Copying the sample…") : "Open the sample"}
@@ -33,7 +33,6 @@ export function OpenSample() {
           <Plus className="size-4" /> New project
         </Link>
       </div>
-      <p className="text-sm text-ink-muted">Your own copy of 23 years of the WHOI schedule. Change anything, it&rsquo;s yours.</p>
       {full && <p role="alert" className="rounded-md border border-brass/50 bg-brass-soft px-3 py-2 text-sm">The demo is full right now — try again tomorrow.</p>}
       {open.error && !full && <p role="alert" className="text-sm text-signal">{errorMessage(open.error)}</p>}
     </div>
@@ -58,9 +57,9 @@ export function YourProjects() {
   if (!ids.length) return null;
   const items: (Project | RememberedProject)[] = q.data ?? remembered;
   return (
-    <section aria-labelledby="yours" className="space-y-3">
-      <h2 id="yours" className="text-xs font-semibold tracking-[0.14em] text-ink-muted uppercase">Your projects</h2>
-      <ul className="grid gap-2 sm:grid-cols-2">
+    <section aria-labelledby="yours" className="w-full space-y-3 text-left">
+      <h2 id="yours" className="text-center text-xs font-semibold tracking-[0.14em] text-ink-muted uppercase">Your projects</h2>
+      <ul className="grid gap-2">
         {items.map((p, i) => (
           <motion.li key={p.id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
             <Link href={`/p/${p.id}`} className="group flex items-center gap-3 rounded-lg border bg-surface p-3 transition-colors hover:border-harbor/50">

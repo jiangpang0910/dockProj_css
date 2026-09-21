@@ -16,6 +16,8 @@
   --color-rule: var(--rule);
   --color-harbor: var(--harbor);
   --color-harbor-soft: var(--harbor-soft);
+  --color-lamp: var(--lamp);
+  --color-lamp-soft: var(--lamp-soft);
   --color-brass: var(--brass);
   --color-brass-soft: var(--brass-soft);
   --color-signal: var(--signal);
@@ -25,9 +27,10 @@
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-inter);
-  --font-mono: var(--font-jetbrains);
-  --font-heading: var(--font-inter);
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-numeric);
+  --font-heading: var(--font-body);
+  --font-display: var(--font-headline), ui-sans-serif, sans-serif;
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -52,19 +55,22 @@
 }
 
 :root {
-  --paper: #f6f4ef;          /* chart paper */
+  /* Light: the isometric port. Pale harbour water, white quays, teal cranes, terracotta boxes. */
+  --paper: #eef4f8;
   --surface: #ffffff;
-  --ink: #14212b;
-  --ink-muted: #5b6b78;
-  --rule: color-mix(in oklab, #5b6b78 16%, transparent);
-  --harbor: #1f5f8b;         /* harbor blue — primary actions, vessel bars */
-  --harbor-soft: color-mix(in oklab, #1f5f8b 12%, white);
-  --brass: #b7791f;          /* events */
-  --brass-soft: color-mix(in oklab, #b7791f 14%, white);
-  --signal: #c2410c;         /* conflicts and errors ONLY */
-  --signal-soft: color-mix(in oklab, #c2410c 10%, white);
-  --ok: #2f7d5b;
-  --ok-soft: color-mix(in oklab, #2f7d5b 12%, white);
+  --ink: #11212e;
+  --ink-muted: #566878;
+  --rule: color-mix(in oklab, #566878 16%, transparent);
+  --harbor: #2a6a9a;         /* harbour blue: vessel bars, links, info */
+  --harbor-soft: color-mix(in oklab, #2a6a9a 12%, white);
+  --lamp: #b3620c;           /* dock lamp: primary actions, today. Complement of the blue. */
+  --lamp-soft: color-mix(in oklab, #b3620c 12%, white);
+  --brass: #8a55b0;          /* events: the dusk-sky violet (token name kept) */
+  --brass-soft: color-mix(in oklab, #8a55b0 12%, white);
+  --signal: #c8402e;         /* conflicts and errors ONLY */
+  --signal-soft: color-mix(in oklab, #c8402e 10%, white);
+  --ok: #1d7f6a;             /* sea-glass */
+  --ok-soft: color-mix(in oklab, #1d7f6a 12%, white);
 
   --background: var(--paper);
   --foreground: var(--ink);
@@ -72,7 +78,7 @@
   --card-foreground: var(--ink);
   --popover: var(--surface);
   --popover-foreground: var(--ink);
-  --primary: var(--harbor);
+  --primary: var(--lamp);
   --primary-foreground: #ffffff;
   --secondary: color-mix(in oklab, var(--ink) 6%, var(--paper));
   --secondary-foreground: var(--ink);
@@ -87,21 +93,25 @@
   --radius: 0.5rem;
 }
 
+/* Dark: the dusk port. Base hue ~218° (night water); the one warm accent is the dock lamps (~36°, its complement);
+   dusk violet and sea-glass sit between them, coral is kept for trouble. */
 .dark {
-  --paper: #0e1620;          /* night water */
-  --surface: #16212d;
-  --ink: #e6edf2;
-  --ink-muted: #8fa1b0;
-  --rule: color-mix(in oklab, #8fa1b0 14%, transparent);
-  --harbor: #5aa9e6;
-  --harbor-soft: color-mix(in oklab, #5aa9e6 18%, #16212d);
-  --brass: #e0a84a;
-  --brass-soft: color-mix(in oklab, #e0a84a 18%, #16212d);
-  --signal: #f97350;
-  --signal-soft: color-mix(in oklab, #f97350 16%, #16212d);
-  --ok: #5cc596;
-  --ok-soft: color-mix(in oklab, #5cc596 16%, #16212d);
-  --primary-foreground: #0e1620;
+  --paper: #08121c;
+  --surface: #0e1b28;
+  --ink: #eaf0f5;
+  --ink-muted: #94a6b6;
+  --rule: color-mix(in oklab, #94a6b6 13%, transparent);
+  --harbor: #86b8e0;
+  --harbor-soft: color-mix(in oklab, #86b8e0 16%, #0e1b28);
+  --lamp: #f3b562;
+  --lamp-soft: color-mix(in oklab, #f3b562 16%, #0e1b28);
+  --brass: #c4a0e0;
+  --brass-soft: color-mix(in oklab, #c4a0e0 16%, #0e1b28);
+  --signal: #ff7b6b;
+  --signal-soft: color-mix(in oklab, #ff7b6b 15%, #0e1b28);
+  --ok: #6fd0b4;
+  --ok-soft: color-mix(in oklab, #6fd0b4 15%, #0e1b28);
+  --primary-foreground: #1b1206;
 }
 
 @layer base {
@@ -113,26 +123,100 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-feature-settings: "cv11", "ss01";
   }
 }
 
 /* Numbers line up: every date, length and count uses this. */
 .num {
-  font-family: var(--font-jetbrains), ui-monospace, monospace;
+  font-family: var(--font-numeric), ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.04em;  /* Azeret runs wide */
 }
 
-/* Chart-paper ground: faint fathom grid behind the app, never behind data. */
-.chart-ground {
-  background-color: var(--paper);
-  background-image:
-    linear-gradient(var(--rule) 1px, transparent 1px),
-    linear-gradient(90deg, var(--rule) 1px, transparent 1px);
-  background-size: 48px 48px;
-  background-position: -1px -1px;
+/* Harbour scenes: a photo pinned behind the page, washed with the paper colour so text stays readable.
+   Light mode uses the isometric port everywhere except the sunrise; dark mode picks the scene per page. */
+.scene {
+  --scene: url(/scenes/isometric.jpg);
+  --wash-top: 30%;
+  --wash-bottom: 70%;
+  position: relative;
+  isolation: isolate;
 }
+.scene::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(to bottom,
+      color-mix(in oklab, var(--paper) var(--wash-top), transparent),
+      color-mix(in oklab, var(--paper) var(--wash-bottom), transparent)),
+    var(--scene) center / cover no-repeat,
+    var(--paper);
+}
+.scene-sunrise { --scene: url(/scenes/sunrise.jpg); }
+/* Landing: the headline sits in the channel of open water down the middle; darken that channel, keep the piers. */
+.scene-aerial::before {
+  background:
+    radial-gradient(ellipse 42% 60% at 50% 48%, color-mix(in oklab, var(--paper) 72%, transparent), transparent 100%),
+    linear-gradient(to bottom,
+      color-mix(in oklab, var(--paper) var(--wash-top), transparent),
+      color-mix(in oklab, var(--paper) var(--wash-bottom), transparent)),
+    var(--scene) center / cover no-repeat,
+    var(--paper);
+}
+/* Portrait screens: turn the aerial a quarter so the piers run across the top and bottom and the water stays in the middle. */
+@media (max-aspect-ratio: 1/1) {
+  .scene-aerial::before {
+    inset: auto;
+    top: 50%;
+    left: 50%;
+    width: 100lvh;
+    height: 100lvw;
+    transform: translate(-50%, -50%) rotate(90deg);
+  }
+}
+.dark .scene-aerial { --scene: url(/scenes/aerial.jpg); --wash-top: 15%; --wash-bottom: 50%; }
+.dark .scene-harbor { --scene: url(/scenes/dusk.jpg); --wash-top: 45%; --wash-bottom: 72%; }
+.dark .scene-sunrise { --wash-top: 50%; --wash-bottom: 80%; }
+
+/* Panels float over the scene as frosted glass with a lit top edge; dialogs and menus (portalled outside) stay solid. */
+.scene .bg-surface {
+  background-color: color-mix(in oklab, var(--surface) 82%, transparent);
+  backdrop-filter: blur(12px) saturate(1.15);
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--ink) 9%, transparent);
+}
+.dark .scene .bg-surface { border-color: color-mix(in oklab, var(--harbor) 22%, transparent); }
+
+/* The schedule grid: no hard frame. A hairline that fades into the photo, a wide soft shadow to lift it,
+   and a lit top edge. The row labels are separated by a gradient hairline instead of a ruled border. */
+.scene .timeline-panel {
+  border-color: color-mix(in oklab, var(--ink) 7%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, white 35%, transparent),
+    0 1px 2px color-mix(in oklab, var(--ink) 6%, transparent),
+    0 18px 50px -18px color-mix(in oklab, #0b2236 30%, transparent);
+}
+.dark .scene .timeline-panel {
+  border-color: color-mix(in oklab, var(--harbor) 10%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--harbor) 16%, transparent),
+    0 24px 70px -20px rgb(0 0 0 / 0.65);
+}
+.timeline-label {
+  background-color: color-mix(in oklab, var(--surface) 88%, transparent);
+  backdrop-filter: blur(10px);
+  background-image: linear-gradient(to bottom, transparent, var(--rule) 25%, var(--rule) 75%, transparent);
+  background-size: 1px 100%;
+  background-position: right;
+  background-repeat: no-repeat;
+}
+
+/* Lamp glow: primary buttons and the today line give off a little light, like the dock lamps in the photos. */
+.dark [data-slot="button"].bg-primary:not(:disabled) {
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--lamp) 60%, transparent), 0 0 22px -4px color-mix(in oklab, var(--lamp) 70%, transparent);
+}
+.dark .bg-lamp { box-shadow: 0 0 10px 1px color-mix(in oklab, var(--lamp) 65%, transparent); }
 
 /* Closures: "no-go water" — diagonal hatching. */
 .hatch {

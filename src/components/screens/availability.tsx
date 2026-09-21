@@ -50,7 +50,7 @@ export function AvailabilityScreen() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-5 p-3 sm:p-5">
-      <PageHeader title="Availability" sub="Free and long enough, tightest fit first — so a 40′ boat isn't offered the 410′ berth ahead of a 55′ one." />
+      <PageHeader title="Availability" sub="Free and long enough, tightest fit first." />
 
       <div className="grid gap-3 rounded-xl border bg-surface p-4 sm:grid-cols-[1fr_1fr_1.6fr_7rem]">
         <div className="space-y-1.5"><Label htmlFor="av-s">Arrives</Label>
@@ -86,7 +86,7 @@ export function AvailabilityScreen() {
                   <p className="font-semibold">{o.berth.name} <span className="num text-sm font-normal text-ink-muted">{o.berth.kind === "section" ? "shared" : ft(o.berth.lengthFt)}</span></p>
                   <p className="num text-sm text-ok">{o.slackFt != null ? `+${ft(o.slackFt)} spare` : o.berth.kind === "section" ? "shared section, no length limit" : "free"}{i === 0 && o.slackFt != null && " · tightest fit"}</p>
                 </div>
-                <Button size="sm" className="bg-ok hover:bg-ok/85" onClick={() => editor.openNew({ berthId: o.berth.id, startDate: start, endDate: end, ...(vesselId ? { occupantType: "vessel", vesselId } : {}) })}>Book</Button>
+                <Button size="sm" variant="outline" onClick={() => editor.openNew({ berthId: o.berth.id, startDate: start, endDate: end, ...(vesselId ? { occupantType: "vessel", vesselId } : {}) })}>Book</Button>
               </motion.div>
             ))}
           </div>

@@ -59,6 +59,7 @@ cancel, move and break things freely, and the next reviewer still starts clean.
 | `DATABASE_URL_UNPOOLED` | laptop / CI only | Neon **direct** URL, for migrations and seeding |
 | `CRON_SECRET` | Vercel | random string; Vercel Cron sends it as `Authorization: Bearer …` |
 | `PARSER_URL`, `PARSER_SECRET` | Vercel (app) | the parser project's URL + a shared secret. Unset locally → the app spawns `python3 -m pipeline.cli` |
+| `SOLVER_URL` (optional) | Vercel (app) | where `/api/solve` (CP-SAT) lives; defaults to `PARSER_URL` (same pipeline project, same secret). Unset locally → the app spawns `python3 -m pipeline.solve_cli`. OR-Tools makes that project ~178 MB unpacked (limit 250) |
 | `PARSER_SECRET`, `ANTHROPIC_API_KEY` | Vercel (parser project) | the key is optional: without it the model step is skipped |
 
 - **Local dev:** `vercel env pull .env.local`, then `npm run dev`, pointing at the Neon `dev` branch.

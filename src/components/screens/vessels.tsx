@@ -114,7 +114,7 @@ function LengthCell({ vessel, rowIndex }: { vessel: Vessel; rowIndex: number }) 
   return (
     <form className="flex items-center gap-1.5" onSubmit={(e) => { e.preventDefault(); if (Number(v) > 0) save.mutate(); }}>
       <Input data-length-row={rowIndex} aria-label={`Length of ${vessel.name} in feet`} placeholder="ft" inputMode="decimal" value={v}
-        onChange={(e) => setV(e.target.value)} className="num h-7 w-20 border-brass/60" />
+        onChange={(e) => setV(e.target.value)} className="num h-7 w-20 border-dashed" />
       {save.error && <span className="text-xs text-signal">{errorMessage(save.error)}</span>}
     </form>
   );

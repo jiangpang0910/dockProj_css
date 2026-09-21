@@ -1,5 +1,6 @@
 {
   "functions": {
-    "api/parse.py": { "maxDuration": 60 }
+    "api/parse.py": { "maxDuration": 60 },
+    "api/solve.py": { "maxDuration": 60, "memory": 2048 }
   }
 }

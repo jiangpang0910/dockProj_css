@@ -66,16 +66,16 @@ export function NewProject() {
   const partialPid = (create.error as (Error & { pid?: string }) | null)?.pid;
 
   return (
-    <div className="chart-ground min-h-dvh">
+    <div className="scene scene-sunrise min-h-dvh">
       <div className="mx-auto max-w-3xl px-5 py-8 sm:px-8">
         <header className="mb-10 flex items-center justify-between">
           <Link href="/" aria-label="Home"><Logo /></Link>
           <Link href="/" className="inline-flex items-center gap-1 text-sm text-ink-muted hover:text-ink"><ArrowLeft className="size-4" /> Back</Link>
         </header>
-        <h1 className="text-3xl font-semibold tracking-tight">New project</h1>
+        <h1 className="font-display text-4xl leading-none tracking-tight">New project</h1>
         <p className="mt-2 text-ink-muted">A workspace of your own: its own berths, vessels and bookings.</p>
 
-        <form className="mt-8 space-y-8" onSubmit={(e) => { e.preventDefault(); if (canCreate) create.mutate(); }}>
+        <form className="mt-8 space-y-8 rounded-2xl border bg-surface p-5 shadow-2xl shadow-black/20 sm:p-8" onSubmit={(e) => { e.preventDefault(); if (canCreate) create.mutate(); }}>
           <Step n={1} title="Name and planning date">
             <div className="grid gap-4 sm:grid-cols-[1fr_12rem]">
               <div className="space-y-1.5">

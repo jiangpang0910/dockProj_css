@@ -177,7 +177,9 @@ export type IssueCode =
   | "TEMPLATE_BAD_HEADER"                // a template sheet's header row doesn't match → error, that sheet skipped
   | "INVALID_VALUE"                      // template cell: bad kind / length / date / type → error, row skipped
   | "DUPLICATE_NAME"                     // same berth/vessel name twice in the file → warning, first kept
-  | "MODEL_CLASSIFIED";                  // info: regex couldn't classify the cell, the language model did. Review it
+  | "MODEL_CLASSIFIED"                   // info: regex couldn't classify the cell, the language model did. Review it
+  | "HEADER_AREA_TEXT"                   // info: text in a month's header rows (where day numbers go), not read as a stay
+  | "UNLABELED_BAR";                     // info: a coloured bar with no name that doesn't continue any stay
 export interface ImportedRow {
   berthLabel: string | null;       // raw berth label / Berth column, null for unlabeled overflow rows
   occupantType: OccupantType;
