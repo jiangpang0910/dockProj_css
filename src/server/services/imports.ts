@@ -28,7 +28,10 @@ const RUN_SELECT = `
     (SELECT count(*) FROM import_issue i WHERE i.import_id = r.id)::int AS n_issues,
     (SELECT count(*) FROM import_issue i WHERE i.import_id = r.id AND i.severity = 'error')::int AS n_error,
     (SELECT count(*) FROM import_issue i WHERE i.import_id = r.id AND i.severity = 'warning')::int AS n_warning,
-    (SELECT count(*) FROM import_issue i WHERE i.import_id = r.id AND i.severity = 'info')::int AS n_info
+    (SELECT count(*) FROM import_issue i WHERE i.import_id = r.id AND i.severity = 'info')::int AS n_info,
+    (SELECT count(*) FROM conflict c WHERE c.import_id = r.id)::int AS n_conflicts,
+    (SELECT coalesce(jsonb_object_agg(t.type, t.n), '{}'::jsonb)
+       FROM (SELECT type, count(*)::int AS n FROM conflict c WHERE c.import_id = r.id GROUP BY type) t) AS conflict_types
   FROM import_run r`;
 
 function toRun(r: Record<string, unknown>): ImportRun {
@@ -40,9 +43,10 @@ function toRun(r: Record<string, unknown>): ImportRun {
     counts: {
       sheets: r.sheets as number, cells: r.cells as number,
       berths: r.n_berths as number, vessels: r.n_vessels as number, bookings: r.n_bookings as number,
-      outsideWindow: r.outside_window as number, issues: r.n_issues as number,
+      outsideWindow: r.outside_window as number, issues: r.n_issues as number, conflicts: r.n_conflicts as number,
     },
     issueCounts: { error: r.n_error as number, warning: r.n_warning as number, info: r.n_info as number },
+    conflictCounts: (typeof r.conflict_types === "string" ? JSON.parse(r.conflict_types) : r.conflict_types) as ImportRun["conflictCounts"],
   };
 }
 
@@ -165,6 +169,18 @@ async function persistPlan(
         start_date: i.row?.startDate ?? null, end_date: i.row?.endDate ?? null, classified_by: i.row?.classifiedBy ?? null,
         notes: i.row?.notes ?? null })))]);
   }
+  if (plan.conflicts.length) {
+    await q.query(
+      `INSERT INTO conflict (project_id, import_id, type, status, occupant_type, title, berth_label, berth_name, vessel_name,
+         start_date, end_date, notes, sheet, cell, message)
+       SELECT $1, $2, x.type, 'staged', x.occupant_type, x.title, x.berth_label, x.berth_name, x.vessel_name,
+         x.start_date, x.end_date, x.notes, x.sheet, x.cell, x.message
+       FROM jsonb_to_recordset($3::jsonb) AS x(type text, occupant_type text, title text, berth_label text, berth_name text,
+         vessel_name text, start_date date, end_date date, notes text, sheet text, cell text, message text)`,
+      [pid, id, json(plan.conflicts.map((c) => ({ type: c.type, occupant_type: c.occupantType, title: c.title,
+        berth_label: c.berthLabel, berth_name: c.berthName, vessel_name: c.vesselName, start_date: c.startDate,
+        end_date: c.endDate, notes: c.notes, sheet: c.sheet, cell: c.cell, message: c.message })))]);
+  }
   return id;
 }
 
@@ -198,6 +214,12 @@ export async function commitImport(pid: string, id: string): Promise<ImportRun> 
        LEFT JOIN import_staged_vessel isv ON isv.id = sb.staged_vessel_id
        LEFT JOIN vessel v ON v.project_id = $2 AND lower(v.name) = lower(isv.name)
        WHERE sb.import_id = $1`, [id, pid]);
+    // staged conflicts go live on the Conflicts tab, now pointing at real berth / vessel rows
+    await q.query(
+      `UPDATE conflict c SET status = 'open',
+         berth_id  = (SELECT be.id FROM berth be WHERE be.project_id = $2 AND lower(be.name) = lower(c.berth_name)),
+         vessel_id = (SELECT v.id FROM vessel v WHERE v.project_id = $2 AND lower(v.name) = lower(c.vessel_name))
+       WHERE c.import_id = $1 AND c.status = 'staged'`, [id, pid]);
     await q.query("UPDATE import_run SET status = 'committed', committed_at = now() WHERE id = $1", [id]);
   });
   return loadRun(db, pid, id);
@@ -212,6 +234,7 @@ export async function discardImport(pid: string, id: string): Promise<void> {
     if (!rows[0]) throw notFound("Import");
     if (rows[0].status === "discarded") return;
     if (rows[0].status !== "previewed") throw new ApiErr("CONFLICT", "A committed import can't be discarded.");
+    await q.query("DELETE FROM conflict WHERE import_id = $1 AND status = 'staged'", [id]);
     await q.query("DELETE FROM import_staged_booking WHERE import_id = $1", [id]);
     await q.query("DELETE FROM import_staged_vessel WHERE import_id = $1", [id]);
     await q.query("DELETE FROM import_staged_berth WHERE import_id = $1", [id]);

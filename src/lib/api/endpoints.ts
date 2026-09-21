@@ -13,6 +13,7 @@ export type BookingsFilter = {
   from: T.ISODate; to: T.ISODate; berthId?: T.Id; vesselId?: T.Id;
   occupantType?: T.OccupantType; q?: string; includeCancelled?: boolean;
 };
+export type ConflictsFilter = { type?: T.ConflictType; status?: T.ConflictStatus; berthId?: T.Id; q?: string; cursor?: string; limit?: number };
 export type IssuesFilter = { severity?: "error" | "warning" | "info"; code?: string; resolved?: boolean; cursor?: string; limit?: number };
 
 // everything else is scoped: const p = inProject(pid); p.getSchedule(from, to)
@@ -58,6 +59,16 @@ export const inProject = (pid: T.Id) => {
     discardImport: (id: T.Id) => api<void>(`${P}/imports/${id}`, { method: "DELETE" }),
     resolveIssue:  (id: T.Id, issueId: T.Id, body: T.ResolveIssueInput) =>
       api<T.ImportIssue>(`${P}/imports/${id}/issues/${issueId}/resolve`, { method: "POST", json: body }),
+
+    listConflicts:    (f: ConflictsFilter) => api<T.Page<T.Conflict>>(`${P}/conflicts?${qs(f)}`),
+    conflictSummary:  () => api<T.ConflictSummary>(`${P}/conflicts/summary`),
+    resolveConflict:  (id: T.Id, body: T.ResolveConflictInput) =>
+      api<T.Conflict>(`${P}/conflicts/${id}/resolve`, { method: "POST", json: body }),
+    dismissConflicts: (body: T.DismissConflictsInput) =>
+      api<{ dismissed: number }>(`${P}/conflicts/dismiss`, { method: "POST", json: body }),
+    solveConflicts:   (body: T.SolveRequest) => api<T.SolveResult>(`${P}/conflicts/solve`, { method: "POST", json: body }),
+    applyProposals:   (body: T.ApplyProposalsInput) =>
+      api<T.ApplyProposalsResult>(`${P}/conflicts/apply`, { method: "POST", json: body }),
 
     audit:         () => api<T.AuditReport>(`${P}/audit`),
   };

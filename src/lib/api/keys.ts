@@ -13,5 +13,7 @@ export const qk = {
   imports: (pid: string) => [pid, "imports"] as const,
   importRun: (pid: string, id: string) => [pid, "imports", id] as const,
   issues: (pid: string, id: string, f: object) => [pid, "imports", id, "issues", f] as const,
+  conflicts: (pid: string, f: object) => [pid, "conflicts", f] as const,
+  conflictSummary: (pid: string) => [pid, "conflicts", "summary"] as const,
   audit: (pid: string) => [pid, "audit"] as const,
 };

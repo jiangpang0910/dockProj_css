@@ -4,12 +4,13 @@
  *
  *   1 planning window: rows not touching [from, to] are counted and skipped (issues with such rows too)
  *   2 match berths / vessels to the project (by normalised, case-insensitive name) or stage new ones
- *   3 earliest-first through rules.ts (source "import") on a MemoryStore → pass: staged; fail: issue with the row
+ *   3 earliest-first through rules.ts (source "import") on a MemoryStore → pass: staged; fail: a conflict
  *
- * Nothing is rejected wholesale: every row ends up staged, an issue, a duplicate note, or outside the window.
+ * Nothing is rejected wholesale: every row ends up staged, a conflict (readable but can't be placed), an issue
+ * (couldn't be read properly), a duplicate note, or outside the window.
  */
 import { randomUUID } from "node:crypto";
-import type { Berth, BookingInput, ImportFormat, IssueCode, ISODate, OccupantType, Vessel, ViolationCode } from "@shared/contract";
+import type { Berth, BookingInput, ConflictType, ImportFormat, IssueCode, ISODate, OccupantType, Vessel, ViolationCode } from "@shared/contract";
 import type { ParsedIssue, ParsedRow, ParsedWorkbook } from "@shared/pipeline";
 import { MemoryStore, validateBooking } from "../domain/rules";
 import { normalizeName } from "../services/mappers";
@@ -54,26 +55,36 @@ export interface StagedIssue {
   code: IssueCode; severity: "error" | "warning" | "info";
   sheet: string; cell: string | null; message: string; row: IssueRow | null;
 }
+/** A row that read fine but can't be placed. Names, not ids: its berth/vessel may only be staged so far. */
+export interface StagedConflict {
+  type: ConflictType;
+  occupantType: OccupantType; title: string;
+  berthLabel: string | null;     // what the file said
+  berthName: string | null;      // the berth it matched (null: none / unknown)
+  vesselName: string | null;     // vessel rows only
+  startDate: ISODate; endDate: ISODate; notes: string | null;
+  sheet: string; cell: string | null; message: string;
+}
 export interface StagePlan {
   format: ImportFormat;
   berths: StagedBerth[];
   vessels: StagedVessel[];
   bookings: StagedBooking[];
   issues: StagedIssue[];
+  conflicts: StagedConflict[];
   outsideWindow: number;
 }
 
 const key = (name: string) => normalizeName(name).toLowerCase();
 
-/** A rule violation found at import → the issue code the user triages (manual.md "Import issue types"). */
-const ISSUE_FOR: Partial<Record<ViolationCode, IssueCode>> = {
+/** A rule violation found at import → a conflict (placeable later) or, for bad data, an issue. */
+const CONFLICT_FOR: Partial<Record<ViolationCode, ConflictType>> = {
   OVERLAP: "OVERLAP",
   VESSEL_TOO_LONG: "VESSEL_TOO_LONG",
   VESSEL_DOUBLE_BERTHED: "VESSEL_DOUBLE_BERTHED",
-  BERTH_INACTIVE: "NO_BERTH",       // resolvable the same way: choose another berth
-  INVALID_RANGE: "INVALID_VALUE",
-  MISSING_FIELD: "INVALID_VALUE",
+  BERTH_INACTIVE: "BERTH_INACTIVE",
 };
+const ISSUE_FOR: Partial<Record<ViolationCode, IssueCode>> = { INVALID_RANGE: "INVALID_VALUE", MISSING_FIELD: "INVALID_VALUE" };
 
 const issueRow = (r: ParsedRow): IssueRow => ({
   berthLabel: r.berthLabel, occupantType: r.occupantType, title: r.title,
@@ -90,6 +101,7 @@ export async function stage({ parsed, window, existing }: StageInput): Promise<S
   const berthsOut: StagedBerth[] = [];
   const vesselsOut: StagedVessel[] = [];
   const bookingsOut: StagedBooking[] = [];
+  const conflictsOut: StagedConflict[] = [];
   let outsideWindow = 0;
 
   // ── berths: existing by name, else staged (both formats may define berths) ──
@@ -138,6 +150,15 @@ export async function stage({ parsed, window, existing }: StageInput): Promise<S
   const used = new Set<string>();
   const markUsed = (sv: StagedVessel) => { if (!used.has(sv.id)) { used.add(sv.id); vesselsOut.push(sv); } };
 
+  /** Record a claim that can't be placed. Its vessel is still brought in, so placing it later needs nothing else. */
+  const conflict = (type: ConflictType, r: ParsedRow, berthName: string | null, message: string) => {
+    const sv = r.occupantType === "vessel" ? vesselFor(r.title) : null;
+    if (sv) markUsed(sv);
+    conflictsOut.push({ type, occupantType: r.occupantType, title: sv?.name ?? r.title, berthLabel: r.berthLabel,
+      berthName, vesselName: sv?.name ?? null, startDate: r.startDate, endDate: r.endDate, notes: r.notes,
+      sheet: r.sheet, cell: r.cell, message });
+  };
+
   if (template) {
     // A Vessels sheet is the user's fleet: bring every vessel in, even without bookings.
     for (const pv of parsed.vessels) {
@@ -168,8 +189,11 @@ export async function stage({ parsed, window, existing }: StageInput): Promise<S
 
     const hit = r.berthLabel ? berthByKey.get(key(r.berthLabel)) : undefined;
     if (!hit) {
-      issues.push({ code: "NO_BERTH", severity: "error", ...where, row: issueRow(r),
-        message: r.berthLabel ? `No berth named "${r.berthLabel}" in this project or the file.` : "This entry has no berth." });
+      if (r.startDate > r.endDate) {
+        issues.push({ code: "INVALID_VALUE", severity: "error", ...where, row: issueRow(r), message: "End is before start; row skipped." });
+      } else {
+        conflict("NO_BERTH", r, null, r.berthLabel ? `No berth named "${r.berthLabel}" in this project or the file.` : "This entry has no berth.");
+      }
       continue;
     }
     const berth = hit.berth;
@@ -190,8 +214,10 @@ export async function stage({ parsed, window, existing }: StageInput): Promise<S
     const errors = (await validateBooking(input, store, { source: "import", asOfDate: window?.from ?? r.startDate }))
       .filter((v) => v.severity === "error");
     if (errors.length) {
-      issues.push({ code: ISSUE_FOR[errors[0].code] ?? "INVALID_VALUE", severity: "error", ...where, row: issueRow(r),
-        message: errors.map((v) => v.message).join(" ") });
+      const message = errors.map((v) => v.message).join(" ");
+      const bad = errors.find((v) => ISSUE_FOR[v.code]);
+      if (bad) issues.push({ code: ISSUE_FOR[bad.code]!, severity: "error", ...where, row: issueRow(r), message });
+      else conflict(CONFLICT_FOR[errors[0].code] ?? "OVERLAP", r, berth.name, message);
       continue;
     }
 
@@ -210,9 +236,15 @@ export async function stage({ parsed, window, existing }: StageInput): Promise<S
   // ── parse-level issues: drop the ones whose row is outside the window; keep row-less ones ──
   for (const pi of parsed.issues as ParsedIssue[]) {
     if (pi.row && !touches(pi.row)) continue;
+    if (pi.code === "NO_BERTH") {   // readable, just unplaced → a conflict; unless its dates are backwards
+      if (pi.row && pi.row.startDate <= pi.row.endDate) conflict("NO_BERTH", pi.row, null, pi.message);
+      else issues.push({ code: "INVALID_VALUE", severity: "error", sheet: pi.sheet, cell: pi.cell,
+        message: `${pi.message} Its end is also before its start; row skipped.`, row: pi.row ? issueRow(pi.row) : null });
+      continue;
+    }
     issues.push({ code: pi.code, severity: pi.severity, sheet: pi.sheet, cell: pi.cell, message: pi.message,
       row: pi.row ? issueRow(pi.row) : null });
   }
 
-  return { format: parsed.format, berths: berthsOut, vessels: vesselsOut, bookings: bookingsOut, issues, outsideWindow };
+  return { format: parsed.format, berths: berthsOut, vessels: vesselsOut, bookings: bookingsOut, issues, conflicts: conflictsOut, outsideWindow };
 }

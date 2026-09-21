@@ -164,6 +164,12 @@ JSON in and out, dates as `ISODate`, same origin as the UI (no CORS).
 | POST | `/imports/:id/commit` | – | `ImportRun` | one transaction; only once per import |
 | DELETE | `/imports/:id` | – | 204 | discards a `previewed` import |
 | POST | `/imports/:id/issues/:issueId/resolve` | `ResolveIssueInput` | `ImportIssue` | `create_booking` goes through the normal rules |
+| GET | `/conflicts` | `?type&status&berthId&q&cursor&limit` | `Page<Conflict>` | open by default, earliest first, live `blockers` |
+| GET | `/conflicts/summary` | – | `ConflictSummary` | counts by status, open by type and by berth |
+| POST | `/conflicts/:id/resolve` | `ResolveConflictInput` | `Conflict` | `place` goes through the normal rules; `dismiss` |
+| POST | `/conflicts/dismiss` | `DismissConflictsInput` | `{ dismissed }` | bulk: given ids, or every open one of a type |
+| POST | `/conflicts/solve` | `SolveRequest` | `SolveResult` | CP-SAT proposals for the selected conflicts; writes nothing |
+| POST | `/conflicts/apply` | `ApplyProposalsInput` | `ApplyProposalsResult` | one booking per segment, normal rules, one transaction; 409 if stale |
 | GET | `/audit` | – | `AuditReport` | re-verifies every rule over all bookings |
 
 Not part of the UI contract: `GET /api/cron/cleanup` (Vercel Cron, `CRON_SECRET`; infrastructure.md §5) and the
@@ -224,9 +230,9 @@ because Vercel runs in UTC. `PUT { asOfDate: null }` clears it. The sample templ
 with parse-level issues. TypeScript owns the planning window and the rules (`rules.ts`), so manual booking and import
 still run the exact same rule code.
 
-**Nothing is rejected wholesale.** An upload always produces a preview. Rows that pass are staged. Rows that break a rule
-(overlap, too long, double-berthed, no berth) become **issues**, flagged with the row attached, for the user to resolve or
-dismiss (OP-10). Commit brings in the staged rows; the flagged ones wait.
+**Nothing is rejected wholesale.** An upload always produces a preview. Rows that pass are staged. Rows that read fine
+but can't be placed (overlap, too long, double-berthed, no berth, berth inactive) become **conflicts** (§6.6). Cells that
+couldn't be read properly become **issues**. Commit brings in the staged rows and opens the conflicts; nothing waits silently.
 
 **Planning window.** `from` = the project's "today" at upload time (the anchor: *the earliest date you're planning
 for*); `to` = the `planTo` field, default `from + HARD_HORIZON_YEARS`. A row is kept if it **touches** the window
@@ -302,20 +308,43 @@ the two section labels) **stage a berth** if the project doesn't have one by tha
 1. Map the berth label to a berth: an existing one in the project, or one staged from this file. A row with no label → `NO_BERTH`.
 2. Sort rows by `(startDate, endDate)`. Feed them one at a time through the **same `validateBooking`** using an in-memory `BookingStore` seeded with the project's *existing* live bookings (loaded once per berth, not per row) plus everything accepted so far; use `source: "import"` (length-unknown allowed, no `IN_PAST`).
 3. A row identical to an existing confirmed booking (same berth, title, dates) → `DUPLICATE_EXISTING` (info), skip. This is what makes re-importing the same file safe.
-4. Otherwise: no `error` violations → **stage it**; else → issue with the violation's code (`OVERLAP`, `VESSEL_TOO_LONG`, `VESSEL_DOUBLE_BERTHED`), `row` filled. Because rows are processed earliest-first, the earlier booking wins an overlap.
+4. Otherwise: no `error` violations → **stage it**; a placement violation → a staged **conflict** typed by it (`OVERLAP`, `VESSEL_TOO_LONG`, `VESSEL_DOUBLE_BERTHED`, `BERTH_INACTIVE`); bad data (`INVALID_RANGE`, `MISSING_FIELD`) → an `INVALID_VALUE` issue. Rows with no berth (or an unknown one) → a `NO_BERTH` conflict. Because rows are processed earliest-first, the earlier booking wins an overlap. A conflict's vessel is still staged, so placing it later needs nothing else.
 5. Store the `ImportRun` with counts, return it. **Nothing is written to `booking` yet.**
 
 **Commit** (`POST …/imports/:id/commit`) is one transaction:
 1. Insert the staged berths.
 2. Insert the staged vessels, matching existing ones by `lower(name)`.
 3. Insert the staged bookings with `source='import'`, pointing each at its real or new berth and vessel.
-4. Set the import's status to `committed`.
+4. Open the staged conflicts, resolving their berth / vessel names to the now-real rows.
+5. Set the import's status to `committed`.
 
 The DB constraints re-check every row. If any fires, the whole commit rolls back, which must never happen in tests. A second commit → 409.
 
 **Resolve** (`POST /imports/:id/issues/:issueId/resolve`):
 - `create_booking { berthId, vesselLengthFt? }` — builds a `BookingInput` from the issue's `row` (vessel found or created by `lower(name)`, `vesselLengthFt` sets its length if given), runs the normal create path with `source:"import"`. Rule failures return the usual 409/422 and the issue stays open.
 - `dismiss { reason? }` — marks it dismissed.
+
+### 6.6 Conflicts
+
+Uploading a whole season in one shot can produce hundreds of rows that can't be placed as written. They aren't import
+issues (the data is fine) — they are **claims**: *this occupant wanted this berth on these days*. Table `conflict`
+(`0003_conflicts.sql`): the claim as the file stated it, its `type`, and a status `staged → open → placed | dismissed`.
+Staged conflicts belong to a previewed import (discard deletes them); commit opens them on the project's **Conflicts** tab.
+
+- **Blockers are computed on read**, never stored: one query per page joins each `OVERLAP` / `VESSEL_DOUBLE_BERTHED`
+  conflict to the confirmed bookings in its way now. Cancel a blocker and the conflict shows "nothing in the way".
+- **Place** (`action: "place", berthId, startDate?, endDate?, vesselLengthFt?`) runs the normal create path
+  (`insertBooking`, `source: "import"`), so a still-blocked berth is the usual 409/422 and the conflict stays open.
+- **Dismiss** one (with a reason), or in bulk: given ids, or every open conflict of one type.
+- **Cloning** a template copies its open conflicts, so the sample project arrives with a real Conflicts tab
+  (the sample workbook gives 282: ~240 `NO_BERTH`, ~29 `VESSEL_TOO_LONG`, a dozen `VESSEL_DOUBLE_BERTHED`, 1 `OVERLAP`).
+
+**Later: CP-SAT.** The table is the solver's input as-is. Variables: for each open conflict *c* and each active berth
+*b*, a boolean `x[c,b]` (plus, optionally, a small day shift). Hard constraints = the same rules: length fit (drop
+`x[c,b]` where the vessel is too long), no two claims on an exclusive berth on the same day (`AddNoOverlap` over
+optional intervals, with confirmed bookings as fixed intervals), one berth per vessel per day. Objective: maximise
+placed claims, penalise moving off the requested berth and shifting days. Output = a list of proposed `place` actions
+the user reviews and applies — the solver proposes, the rules still decide.
 
 **Expected result on the provided sample** (from `data_analysis/stats.py`; use as a golden-test range, not exact): ~2,400 bookings parsed, ~300 `NO_BERTH`, ~104 `ANNOTATION_SKIPPED`, ~89 `OUTSIDE_MONTH_COLUMNS`, 3 `DUPLICATE_CARRYOVER`, 2 `HEADER_YEAR_MISMATCH` blocks (2010), ~498 vessels.
 

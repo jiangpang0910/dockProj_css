@@ -1,7 +1,7 @@
 "use client";
 // The booking editor: one provider that owns the New/Edit booking dialog (§3.2) and the booking detail drawer.
 // Anything in a project can call openNew(prefill) / openEdit(booking) / openDetail(id).
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -97,7 +97,8 @@ function BookingForm({ mode, onClose }: { mode: FormMode; onClose: () => void })
   const vessel = vessels.data?.find((x) => x.id === v.vesselId);
 
   // ── live validation: debounce 250 ms, only with all required fields, cancel the previous request ──
-  const [check, setCheck] = useState<CheckState>({ kind: "idle", missing: [] });
+  // results are stored with the input they answer; anything else on screen is derived (idle / checking)
+  const [result, setResult] = useState<{ key: string; state: CheckState } | null>(null);
   const [nonce, setNonce] = useState(0);
   const input = useMemo<BookingInput>(() => ({
     berthId: v.berthId, occupantType: v.occupantType,
@@ -114,17 +115,18 @@ function BookingForm({ mode, onClose }: { mode: FormMode; onClose: () => void })
   const checkKey = JSON.stringify({ ...input, notes: undefined, nonce });
 
   useEffect(() => {
-    if (!ready) { setCheck({ kind: "idle", missing }); return; }
+    if (!ready) return;
     const ctl = new AbortController();
-    setCheck({ kind: "checking" });
     const t = setTimeout(() => {
       api.validate({ ...input, excludeBookingId: editing?.id }, ctl.signal)
-        .then((r) => setCheck({ kind: "done", violations: r.violations }))
-        .catch((e) => { if ((e as Error).name !== "AbortError") setCheck({ kind: "error", message: errorMessage(e) }); });
+        .then((r) => setResult({ key: checkKey, state: { kind: "done", violations: r.violations } }))
+        .catch((e) => { if ((e as Error).name !== "AbortError") setResult({ key: checkKey, state: { kind: "error", message: errorMessage(e) } }); });
     }, 250);
     return () => { clearTimeout(t); ctl.abort(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkKey, ready]);
+  const check: CheckState = !ready ? { kind: "idle", missing } : result?.key === checkKey ? result.state : { kind: "checking" };
+  const setCheck = (state: CheckState) => setResult({ key: checkKey, state });
 
   const blocked = check.kind === "done" && check.violations.some((x) => x.severity === "error");
 
@@ -271,9 +273,9 @@ function BookingDrawer({ id, onClose }: { id: string | null; onClose: () => void
   const qc = useQueryClient();
   const editor = useBookingEditor();
   const [confirming, setConfirming] = useState(false);
-  const lastId = useRef(id);
-  if (id) lastId.current = id;
-  const shownId = id ?? lastId.current;
+  // keep showing the last booking while the sheet animates closed
+  const [shownId, setShownId] = useState(id);
+  if (id && id !== shownId) setShownId(id);
   const q = useQuery({ queryKey: qk.booking(pid, shownId ?? ""), queryFn: () => api.getBooking(shownId!), enabled: !!shownId });
   const b = q.data;
 

@@ -14,7 +14,7 @@ import { runAudit } from "@/server/services/audit";
 import { getSettings, putSettings } from "@/server/services/settings";
 
 let F: Awaited<ReturnType<typeof makeProject>>;
-beforeAll(async () => { await freshDb(); });
+beforeAll(async () => { await freshDb(); }, 60_000);
 beforeEach(async () => {
   await getDb().query("TRUNCATE project CASCADE");
   F = await makeProject();

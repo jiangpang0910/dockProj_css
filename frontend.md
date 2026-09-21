@@ -187,6 +187,23 @@ Edit length/name/order; 409 lists affected bookings. Delete per row with confirm
 
 Copy for the empty import page should say plainly: *upload our template to set up berths, vessels and bookings, or the original workbook to bring in its history. New bookings are the future.*
 
+### 3.9 Conflicts (`/conflicts`)
+
+A rail item under Import, with a red count of open conflicts. Rows from committed imports that read fine but couldn't be
+placed as written (`GET …/conflicts`, `GET …/conflicts/summary`).
+- **Totals** by status (open / placed / dismissed), each a filter.
+- **Type chips** with open counts: Berth taken (`OVERLAP`), Too long, Vessel elsewhere, No berth, Berth off. Plus a
+  berth filter and a search box. Filters live in the URL.
+- **Card per conflict**, earliest first: type, occupant, dates, the berth it asked for (and lengths, "short by 12′"),
+  the message, and the bookings **in the way now** (click → booking detail). "Nothing is in the way any more" when
+  the blockers are gone.
+- **Place…** → editable dates, a length prompt if the vessel has none, and the availability list for those days
+  (the requested berth marked). Picking a berth sends `place`. **Dismiss** takes an optional reason.
+- **Bulk**: with a type chip selected, "Dismiss all N …" (confirm dialog).
+- **Auto-resolve** is shown disabled: the CP-SAT solver (backend.md §6.6) comes later.
+
+The import preview shows the conflict count by type and says they move to the Conflicts tab on commit.
+
 ### 3.8 Audit (`/audit`, OP-11)
 
 One button, "Run audit" → `GET …/audit`. Healthy result is the hero: a big calm ✓ "N bookings checked · 0 violations" (N = `checkedBookings`). Any violations → a table grouped by code with links.
@@ -268,6 +285,12 @@ Constants the UI needs: `DATE_MIN`/`DATE_MAX` (date-picker bounds), `HARD_HORIZO
 | POST | `/imports/:id/commit` | – | `ImportRun` | one transaction; only once per import |
 | DELETE | `/imports/:id` | – | 204 | discards a `previewed` import |
 | POST | `/imports/:id/issues/:issueId/resolve` | `ResolveIssueInput` | `ImportIssue` | `create_booking` goes through the normal rules |
+| GET | `/conflicts` | `?type&status&berthId&q&cursor&limit` | `Page<Conflict>` | open by default, earliest first, live `blockers` |
+| GET | `/conflicts/summary` | – | `ConflictSummary` | counts by status, open by type and by berth |
+| POST | `/conflicts/:id/resolve` | `ResolveConflictInput` | `Conflict` | `place` goes through the normal rules; `dismiss` |
+| POST | `/conflicts/dismiss` | `DismissConflictsInput` | `{ dismissed }` | bulk: given ids, or every open one of a type |
+| POST | `/conflicts/solve` | `SolveRequest` | `SolveResult` | CP-SAT proposals for the selected conflicts; writes nothing |
+| POST | `/conflicts/apply` | `ApplyProposalsInput` | `ApplyProposalsResult` | one booking per segment, normal rules, one transaction; 409 if stale |
 | GET | `/audit` | – | `AuditReport` | re-verifies every rule over all bookings |
 
 ### 7.3 Error handling

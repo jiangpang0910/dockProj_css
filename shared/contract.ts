@@ -168,8 +168,9 @@ export type ImportFormat = "template" | "legacy_grid";
 // legacy_grid = the original year-per-sheet grid. Berth labels like "Name - 410'" create the berth if missing.
 // Detected from the sheet names; the user doesn't choose.
 export type ImportStatus = "previewed" | "committed" | "discarded";
+// Issues = "we couldn't read this cell properly". Rows that read fine but can't be PLACED (taken berth, too long,
+// no berth…) are Conflicts instead (below), not issues.
 export type IssueCode =
-  | "NO_BERTH" | "OVERLAP" | "VESSEL_TOO_LONG" | "VESSEL_DOUBLE_BERTHED"   // row not importable → needs action
   | "OUTSIDE_MONTH_COLUMNS" | "UNPARSEABLE_CELL"                          // couldn't place the cell
   | "HEADER_YEAR_MISMATCH" | "DUPLICATE_CARRYOVER" | "DUPLICATE_EXISTING" | "ANNOTATION_SKIPPED"  // info: handled automatically
   | "UNKNOWN_FORMAT"                     // template or grid? neither → error, nothing staged
@@ -205,13 +206,113 @@ export interface ImportRun {
     berths: number; vessels: number; bookings: number;   // staged, to add on commit
     outsideWindow: number;                               // parsed fine, but entirely before `from` or after `to`: skipped, not issues
     issues: number;
+    conflicts: number;                                   // rows that couldn't be placed → the Conflicts tab on commit
   };
   issueCounts: { error: number; warning: number; info: number };
+  conflictCounts: Partial<Record<ConflictType, number>>;
 }
 export type ResolveIssueInput =
   | { action: "create_booking"; berthId: Id; vesselLengthFt?: number }
   | { action: "dismiss"; reason?: string };
 export interface Page<T> { items: T[]; nextCursor: string | null; }
+
+// ───────────── conflicts ─────────────
+// A conflict is a CLAIM an import couldn't place: "this occupant wanted this berth on these days". Uploading a
+// whole season in one shot can produce hundreds; they land here (not in the import's issues) when the import is
+// committed, and stay until placed or dismissed. Later, a CP-SAT solver proposes placements for open conflicts.
+export type ConflictType =
+  | "OVERLAP"                 // the berth is already held on some of these days (by an earlier row or a booking)
+  | "VESSEL_TOO_LONG"         // the vessel is longer than the berth
+  | "VESSEL_DOUBLE_BERTHED"   // the same vessel is already at another berth on some of these days
+  | "NO_BERTH"                // the row has no berth, or names one the project doesn't have
+  | "BERTH_INACTIVE";         // the berth exists but is switched off
+export const CONFLICT_TYPES: ConflictType[] = ["OVERLAP", "VESSEL_TOO_LONG", "VESSEL_DOUBLE_BERTHED", "NO_BERTH", "BERTH_INACTIVE"];
+export type ConflictStatus = "open" | "placed" | "dismissed";
+export interface ConflictBlocker {       // a confirmed booking in the way right now (OVERLAP, VESSEL_DOUBLE_BERTHED)
+  bookingId: Id; title: string; berthName: string; startDate: ISODate; endDate: ISODate;
+}
+export interface Conflict {
+  id: Id;
+  importId: Id | null;                  // null when it came with a cloned sample
+  type: ConflictType;
+  status: ConflictStatus;
+  occupantType: OccupantType;
+  title: string;                        // vessel name, or event/closure title
+  vesselId: Id | null;
+  vesselLengthFt: number | null;        // current length on record
+  berthId: Id | null;                   // the berth it asked for (null: none / unknown)
+  berthName: string | null;
+  berthLengthFt: number | null;
+  berthLabel: string | null;            // what the file literally said
+  startDate: ISODate; endDate: ISODate; // INCLUSIVE
+  notes: string | null;
+  sheet: string; cell: string | null;
+  message: string;                      // why, when detected
+  blockers: ConflictBlocker[];          // live; empty = the original berth may now be free
+  bookingId: Id | null;                 // set when placed (the first one, if an auto-resolve split the stay)
+  bookingIds: Id[];                     // every booking made for it: one, or one per segment of a split stay
+  resolutionNote: string | null;
+  createdAt: ISODateTime; resolvedAt: ISODateTime | null;
+}
+export interface ConflictSummary {
+  open: number; placed: number; dismissed: number;
+  byType: Record<ConflictType, number>;                                   // open only
+  byBerth: { berthId: Id | null; berthName: string | null; open: number }[]; // open only, busiest first
+}
+export type ResolveConflictInput =
+  | { action: "place"; berthId: Id; startDate?: ISODate; endDate?: ISODate; vesselLengthFt?: number } // dates default to the claim's
+  | { action: "dismiss"; reason?: string };
+export interface DismissConflictsInput { ids?: Id[]; type?: ConflictType; reason?: string }  // ids, or every open one of a type
+
+// ───────────── auto-resolve (CP-SAT) ─────────────
+// The solver PROPOSES berths for the conflicts the user selected; nothing changes until they apply a proposal.
+// Only the selected conflicts move. Confirmed bookings are fixed. Closures, sections and vessels with no length are
+// never proposed (see SolveSkipReason). Stages, in strict priority (each solved, then held while the next improves):
+//   1. place as many selected conflicts as possible
+//   2. least disruption:  delayDays·wDelay + earlyDays·wEarly + moves·wMove        (a "move" = a mid-stay berth change)
+//   3. least wasted length: Σ over placed days of (berth length − vessel length), in foot-days
+//   4. tie-break: days spent off the berth the file asked for
+export interface SolveOptions {
+  maxDelayDays?: number;     // 0–14, default 3: may arrive up to N days later than the file said
+  maxEarlyDays?: number;     // 0–14, default 0: may arrive earlier (off by default: the vessel isn't there yet)
+  maxMoves?: number;         // 0–3,  default 1: berth changes within one stay (1 = "two stops")
+  minSegmentDays?: number;   // 1–7,  default 2: each part of a split stay lasts at least this long
+  weights?: { delay?: number; early?: number; move?: number };   // stage 2, defaults delay 2, early 3, move 3
+  timeLimitSec?: number;     // 1–30, default 10
+}
+export interface SolveRequest { conflictIds: Id[] | "all"; options?: SolveOptions }   // "all" = every open conflict
+export interface ProposalSegment {
+  berthId: Id; berthName: string; berthLengthFt: number | null;
+  startDate: ISODate; endDate: ISODate;       // INCLUSIVE; segments are consecutive and in order
+  slackFt: number | null;                     // berth length − vessel length; null for events
+}
+export interface Proposal {
+  conflictId: Id; title: string; occupantType: OccupantType; vesselLengthFt: number | null;
+  requested: { berthId: Id | null; berthName: string | null; startDate: ISODate; endDate: ISODate };
+  segments: ProposalSegment[];                // 1 = a single stay; 2+ = moved mid-stay
+  shiftDays: number;                          // + = later than asked, − = earlier
+  cost: { delayDays: number; earlyDays: number; moves: number; slackFootDays: number; offRequestedDays: number };
+}
+export type SolveSkipReason =
+  | "CLOSURE"                // a closure marks THAT berth unusable: moving it is meaningless
+  | "LENGTH_UNKNOWN"         // can't prove it fits: add the vessel's length first
+  | "NO_BERTH_LONG_ENOUGH"   // longer than every active berth
+  | "NO_ROOM"                // every berth that fits is taken on every allowed set of days
+  | "NOT_OPEN";              // placed or dismissed since it was selected
+export interface SolveResult {
+  status: "OPTIMAL" | "FEASIBLE" | "NO_SOLUTION";   // FEASIBLE = time limit hit; proposals valid, maybe not the best
+  options: Required<Omit<SolveOptions, "weights">> & { weights: Required<NonNullable<SolveOptions["weights"]>> };
+  stats: { selected: number; considered: number; placed: number; unplaced: number; moves: number; delayDays: number;
+           slackFootDays: number; solveMs: number };
+  proposals: Proposal[];
+  unplaced: { conflictId: Id; title: string; reason: SolveSkipReason; detail: string }[];
+}
+// Apply = place each chosen proposal, one booking per segment, through the normal rules, all in one transaction.
+// Anything changed since the solve → 409 and nothing is written: re-run the solve.
+export interface ApplyProposalsInput {
+  proposals: { conflictId: Id; segments: { berthId: Id; startDate: ISODate; endDate: ISODate }[] }[];
+}
+export interface ApplyProposalsResult { placed: number; bookingIds: Id[] }
 
 // ───────────── settings ─────────────
 // "Today" is configurable because the sample history ends in 2019: set it to e.g. 2020-01-01 to demo
@@ -317,6 +418,42 @@ export const ImportFieldsSchema = z.object({ planTo: isoDate.optional() });   //
 
 export const VesselsQuerySchema = z.object({ q: z.string().optional(), lengthUnknown: bool.optional() });
 export const BerthsQuerySchema = z.object({ includeInactive: bool.optional() });
+const conflictType = z.enum(["OVERLAP", "VESSEL_TOO_LONG", "VESSEL_DOUBLE_BERTHED", "NO_BERTH", "BERTH_INACTIVE"]);
+export const ConflictsQuerySchema = z.object({
+  type: conflictType.optional(),
+  status: z.enum(["open", "placed", "dismissed"]).optional(),   // default: open
+  berthId: id.optional(),
+  q: z.string().optional(),
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+export const ResolveConflictInputSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("place"), berthId: id, startDate: isoDate.optional(), endDate: isoDate.optional(), vesselLengthFt: feet.optional() }),
+  z.object({ action: z.literal("dismiss"), reason: z.string().optional() }),
+]) satisfies z.ZodType<ResolveConflictInput>;
+export const DismissConflictsInputSchema = z.object({
+  ids: z.array(id).min(1).max(500).optional(),
+  type: conflictType.optional(),
+  reason: z.string().optional(),
+}).refine((v) => !!v.ids !== !!v.type, "Give either ids or a type.") satisfies z.ZodType<DismissConflictsInput>;
+
+const days = (max: number) => z.number().int().min(0).max(max);
+export const SolveRequestSchema = z.object({
+  conflictIds: z.union([z.literal("all"), z.array(id).min(1).max(1000)]),
+  options: z.object({
+    maxDelayDays: days(14).optional(), maxEarlyDays: days(14).optional(), maxMoves: days(3).optional(),
+    minSegmentDays: z.number().int().min(1).max(7).optional(),
+    weights: z.object({ delay: days(100).optional(), early: days(100).optional(), move: days(100).optional() }).optional(),
+    timeLimitSec: z.number().int().min(1).max(30).optional(),
+  }).optional(),
+}) satisfies z.ZodType<SolveRequest>;
+export const ApplyProposalsInputSchema = z.object({
+  proposals: z.array(z.object({
+    conflictId: id,
+    segments: z.array(z.object({ berthId: id, startDate: isoDate, endDate: isoDate })).min(1).max(4),
+  })).min(1).max(1000),
+}) satisfies z.ZodType<ApplyProposalsInput>;
+
 export const IssuesQuerySchema = z.object({
   severity: z.enum(["error", "warning", "info"]).optional(),
   code: z.string().optional(),

@@ -3,10 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
-  CalendarDays, ChevronDown, Copy, FolderOpen, List, Pencil, Plus, Search, ShieldCheck, Ship, Upload, Waves,
+  CalendarDays, ChevronDown, Copy, FolderOpen, List, Pencil, Plus, Search, ShieldCheck, Ship, TriangleAlert, Upload, Waves,
 } from "lucide-react";
 import { Logo } from "@/components/app/logo";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,7 @@ const NAV = [
   { href: "/vessels", label: "Vessels", icon: Ship },
   { href: "/berths", label: "Berths", icon: Waves },
   { href: "/import", label: "Import", icon: Upload },
+  { href: "/conflicts", label: "Conflicts", icon: TriangleAlert },
   { href: "/audit", label: "Audit", icon: ShieldCheck },
 ];
 
@@ -45,8 +46,9 @@ export function ProjectShell({ pid, children }: { pid: string; children: React.R
 }
 
 function Frame({ children }: { children: React.ReactNode }) {
-  const { pid } = useProjectCtx();
+  const { pid, api } = useProjectCtx();
   const project = useProject();
+  const conflicts = useQuery({ queryKey: qk.conflictSummary(pid), queryFn: () => api.conflictSummary() });
   const pathname = usePathname();
   const editor = useBookingEditor();
 
@@ -68,6 +70,7 @@ function Frame({ children }: { children: React.ReactNode }) {
   }
 
   const base = `/p/${pid}`;
+  const openConflicts = conflicts.data?.open ?? 0;
   const isActive = (href: string) => (href === "" ? pathname === base : pathname.startsWith(base + href));
 
   return (
@@ -80,6 +83,9 @@ function Frame({ children }: { children: React.ReactNode }) {
               className={cn("flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors",
                 isActive(href) ? "bg-harbor-soft font-medium text-ink" : "text-ink-muted hover:bg-muted hover:text-ink")}>
               <Icon className={cn("size-4", isActive(href) && "text-harbor")} /> {label}
+              {href === "/conflicts" && openConflicts > 0 && (
+                <span className="num ml-auto rounded-full bg-signal-soft px-1.5 text-[11px] font-medium text-signal">{openConflicts}</span>
+              )}
             </Link>
           ))}
         </nav>
