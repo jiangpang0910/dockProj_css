@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowDown, ArrowUp, Pencil, Plus, Trash2 } from "lucide-react";
-import type { Berth, BerthKind } from "@shared/contract";
+import type { Berth } from "@shared/contract";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -65,18 +65,18 @@ export function BerthsScreen() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-5 p-3 sm:p-5">
-      <PageHeader title="Berths" sub={<>A <b>berth</b> holds one occupant a day and has a length. A <b>shared section</b> holds many, with no length limit.</>}>
+      <PageHeader title="Berths" sub={<>A berth holds one occupant a day. Its length is what the fit check uses; until it&rsquo;s on record, bookings here can&rsquo;t be checked for fit.</>}>
         <Button onClick={() => setEditing("new")}><Plus /> New berth</Button>
       </PageHeader>
       {list.error ? <ErrorBox message={errorMessage(list.error)} onRetry={() => list.refetch()} /> : (
         <div className="overflow-x-auto rounded-xl border bg-surface">
           <table className="w-full min-w-[640px] text-sm">
             <thead className="border-b text-left text-[11px] tracking-wide text-ink-muted uppercase">
-              <tr><th className="w-16 px-3 py-2 font-medium">Order</th><th className="px-3 py-2 font-medium">Name</th><th className="px-3 py-2 font-medium">Kind</th><th className="px-3 py-2 font-medium">Length</th>
+              <tr><th className="w-16 px-3 py-2 font-medium">Order</th><th className="px-3 py-2 font-medium">Name</th><th className="px-3 py-2 font-medium">Length</th>
                 <th className="px-3 py-2 font-medium">{today ? monthLabel(today) : "This month"}</th><th className="px-3 py-2 font-medium">Active</th><th className="w-24 px-3 py-2" /></tr>
             </thead>
             <tbody>
-              {list.isLoading && Array.from({ length: 8 }, (_, i) => <tr key={i} className="border-b"><td colSpan={7} className="px-3 py-3"><div className="h-4 animate-pulse rounded bg-muted" /></td></tr>)}
+              {list.isLoading && Array.from({ length: 8 }, (_, i) => <tr key={i} className="border-b"><td colSpan={6} className="px-3 py-3"><div className="h-4 animate-pulse rounded bg-muted" /></td></tr>)}
               {rows.map((b, i) => {
                 const u = util.get(b.id);
                 return (
@@ -88,8 +88,7 @@ export function BerthsScreen() {
                       </div>
                     </td>
                     <td className="px-3 py-1.5 font-medium">{b.name}</td>
-                    <td className="px-3 py-1.5">{b.kind === "section" ? "shared section" : "berth"}</td>
-                    <td className="num px-3 py-1.5">{b.kind === "section" ? "—" : ft(b.lengthFt)}</td>
+                    <td className="num px-3 py-1.5">{b.lengthFt == null ? <span className="text-brass">not on record</span> : ft(b.lengthFt)}</td>
                     <td className="px-3 py-1.5">
                       {u == null ? <span className="text-ink-muted">—</span> : (
                         <span className="flex items-center gap-2">
@@ -106,7 +105,7 @@ export function BerthsScreen() {
                   </tr>
                 );
               })}
-              {!list.isLoading && rows.length === 0 && <tr><td colSpan={7} className="px-3 py-10 text-center text-ink-muted">No berths yet. Add the first one, or upload a spreadsheet on the Import page.</td></tr>}
+              {!list.isLoading && rows.length === 0 && <tr><td colSpan={6} className="px-3 py-10 text-center text-ink-muted">No berths yet. Add the first one, or upload a spreadsheet on the Import page.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -141,34 +140,25 @@ function BerthForm({ berth, onDone, onCancel }: { berth: Berth | null; onDone: (
   const { api } = useProjectCtx();
   const editor = useBookingEditor();
   const [name, setName] = useState(berth?.name ?? "");
-  const [kind, setKind] = useState<BerthKind>(berth?.kind ?? "berth");
   const [len, setLen] = useState(berth?.lengthFt?.toString() ?? "");
   const save = useMutation({
     mutationFn: () => berth
-      ? api.updateBerth(berth.id, { name: name.trim(), ...(kind === "berth" ? { lengthFt: Number(len) } : {}) })
-      : api.createBerth(kind === "berth" ? { name: name.trim(), kind, lengthFt: Number(len) } : { name: name.trim(), kind, lengthFt: null }),
+      ? api.updateBerth(berth.id, { name: name.trim(), lengthFt: len.trim() ? Number(len) : null })
+      : api.createBerth({ name: name.trim(), lengthFt: len.trim() ? Number(len) : null }),
     onSuccess: (b) => { toast.success(`${berth ? "Saved" : "Added"} ${b.name}.`); onDone(); },
   });
   const broken = save.error instanceof ApiRequestError ? save.error.body.error.violations?.flatMap((x) => x.bookingIds ?? []) ?? [] : [];
-  const valid = name.trim() && (kind === "section" || Number(len) > 0);
+  const valid = name.trim() && (!len.trim() || Number(len) > 0);
   return (
     <DialogContent className="sm:max-w-md">
       <DialogHeader><DialogTitle>{berth ? `Edit ${berth.name}` : "New berth"}</DialogTitle></DialogHeader>
       <form id="berth-form" className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (valid) save.mutate(); }}>
         <div className="space-y-1.5"><Label htmlFor="bf-n">Name</Label><Input id="bf-n" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="South Float West" /></div>
-        {!berth && (
-          <div role="radiogroup" aria-label="Kind" className="grid grid-cols-2 gap-2">
-            {(["berth", "section"] as const).map((k) => (
-              <button key={k} type="button" role="radio" aria-checked={kind === k} onClick={() => setKind(k)}
-                className={cn("rounded-lg border p-2.5 text-left text-sm", kind === k ? "border-harbor bg-harbor-soft" : "hover:bg-muted")}>
-                <span className="font-medium">{k === "berth" ? "Berth" : "Shared section"}</span>
-                <span className="block text-xs text-ink-muted">{k === "berth" ? "one occupant a day, has a length" : "many boats, no length limit"}</span>
-              </button>
-            ))}
-          </div>
-        )}
-        {kind === "berth" && <div className="space-y-1.5"><Label htmlFor="bf-l">Length (ft)</Label><Input id="bf-l" inputMode="decimal" className="num" value={len} onChange={(e) => setLen(e.target.value)} /></div>}
-        {berth && <p className="text-xs text-ink-muted">A berth can&rsquo;t switch between berth and shared section once created.</p>}
+        <div className="space-y-1.5">
+          <Label htmlFor="bf-l">Length (ft)</Label>
+          <Input id="bf-l" inputMode="decimal" className="num" value={len} onChange={(e) => setLen(e.target.value)} placeholder="not on record" />
+          <p className="text-xs text-ink-muted">Leave it blank if you don&rsquo;t know it. Nothing booked here can be checked for fit until it&rsquo;s filled in.</p>
+        </div>
         {save.error && (
           <div className="rounded-md border border-signal/40 bg-signal-soft px-3 py-2 text-sm">
             <p>{errorMessage(save.error)}</p>

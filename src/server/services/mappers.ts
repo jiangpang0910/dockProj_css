@@ -15,7 +15,6 @@ export function toBerth(r: Row): Berth {
     id: r.id as string,
     name: r.name as string,
     lengthFt: num(r.length_ft),
-    kind: r.kind as Berth["kind"],
     active: r.active as boolean,
     sortOrder: r.sort_order as number,
   };

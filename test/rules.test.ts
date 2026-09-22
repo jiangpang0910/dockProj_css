@@ -5,7 +5,7 @@ import { MemoryStore, UnknownEntityError, toResult, validateBooking, type RuleCo
 import { addYears, formatRange, isISODate, overlaps, spanDays } from "@/server/domain/dates";
 
 const berth = (id: string, lengthFt: number | null, extra: Partial<Berth> = {}): Berth =>
-  ({ id, name: id, lengthFt, kind: lengthFt == null ? "section" : "berth", active: true, sortOrder: 1, ...extra });
+  ({ id, name: id, lengthFt, active: true, sortOrder: 1, ...extra });
 const vessel = (id: string, lengthFt: number | null): Vessel =>
   ({ id, name: id, lengthFt, draftFt: null, operator: null, notes: null });
 
@@ -67,9 +67,9 @@ describe("manual.md worked examples", () => {
     expect(v.code).toBe("VESSEL_DOUBLE_BERTHED");
     expect(v.message).toBe("A is already booked: A at B 5–9 Mar 2027.");
   });
-  it("section is shared: two boats, same days → OK", async () => {
+  it("a berth with no length on record still holds one boat at a time → OVERLAP (imported: no fit check)", async () => {
     const st = store({ id: "x", berth: SLIPS, vessel: X, s: d(5), e: d(9) });
-    expect(await codes(vb(Y, SLIPS, d(5), d(9)), st)).toEqual([]);
+    expect(await codes(vb(Y, SLIPS, d(5), d(9)), st, imported)).toEqual(["OVERLAP"]);
   });
   it("9–5 → INVALID_RANGE", async () => {
     expect(await codes(vb(C, B, d(9), d(5)), store())).toEqual(["INVALID_RANGE"]);
@@ -99,12 +99,13 @@ describe("the rest of the rules", () => {
     expect(v.bookingIds).toHaveLength(5);
     expect(v.message).toMatch(/and 2 more\.$/);
   });
-  it("vessel is double-berthed even when the other booking is in a section", async () => {
+  it("vessel is double-berthed even when the other booking is on a length-unknown berth", async () => {
     const st = store({ id: "s", berth: SLIPS, vessel: A, s: d(5), e: d(5) });
     expect(await codes(vb(A, B, d(5), d(6)), st)).toEqual(["VESSEL_DOUBLE_BERTHED"]);
   });
-  it("sections skip the fit check", async () => {
-    expect(await codes(vb(A, SLIPS, d(5), d(9)), store())).toEqual([]);
+  it("berth with no length: by hand → BERTH_LENGTH_UNKNOWN; imported → booked, fit unverified", async () => {
+    expect(await codes(vb(A, SLIPS, d(5), d(9)), store())).toEqual(["BERTH_LENGTH_UNKNOWN"]);
+    expect(await codes(vb(A, SLIPS, d(5), d(9)), store(), imported)).toEqual([]);
   });
   it("inactive berth → BERTH_INACTIVE", async () => {
     expect(await codes(vb(C, OFF, d(5), d(9)), store())).toEqual(["BERTH_INACTIVE"]);

@@ -22,7 +22,7 @@ How the app is hosted, how a visitor gets a project, and how to run and reset it
 | App + API | **Vercel, Hobby tier** | one deploy for UI and API; pushing to `main` deploys; every PR gets a preview URL |
 | Database | **Neon, free tier** | managed Postgres with `btree_gist`; branching gives a dev copy for free; suspends when idle |
 | Runtime | Node (not Edge) for every `/api` route | `pg` and `exceljs` need Node APIs: `export const runtime = "nodejs"` |
-| Auth | none | the project link *is* the access key (§5) |
+| Auth | handed-out logins | username + password from `AUTH_ACCOUNTS`, a signed cookie, roles admin/editor/viewer (§5) |
 
 Things this rules out on purpose: Docker, a separate API server, Redis, and anything a reviewer must install.
 
@@ -47,9 +47,10 @@ Things this rules out on purpose: Docker, a separate API server, Redis, and anyt
   └─ Your projects  (ids remembered in this browser; "Copy link" to keep or share one)
 ```
 
-**Every visitor gets their own copy of the sample.** The sample is a *template* project that is never edited. "Open the
-sample" clones it (`clone_project`, database.md §6), which takes under a second for ~2,100 bookings. So a reviewer can
-cancel, move and break things freely, and the next reviewer still starts clean.
+**Every login gets its own copy of the sample.** The sample is a *template* project that is never edited. The first
+"Open the sample" for an account clones it (`clone_project`, database.md §6), which takes under a second for ~2,100
+bookings; later clicks reopen that same copy (`POST /api/projects/sample`). So a reviewer can cancel, move and break
+things freely, and an account you hand to someone else still starts clean.
 
 ## 3. Environments and secrets
 
@@ -58,6 +59,8 @@ cancel, move and break things freely, and the next reviewer still starts clean.
 | `DATABASE_URL` | Vercel (Production → Neon `main`, Preview → Neon `dev`), `.env.local` | Neon **pooled** URL (host contains `-pooler`), `?sslmode=require` |
 | `DATABASE_URL_UNPOOLED` | laptop / CI only | Neon **direct** URL, for migrations and seeding |
 | `CRON_SECRET` | Vercel | random string; Vercel Cron sends it as `Authorization: Bearer …` |
+| `AUTH_SECRET` | Vercel, `.env.local` | `openssl rand -base64 32`; signs the session cookie. Rotating it signs everyone out |
+| `AUTH_ACCOUNTS` | Vercel, `.env.local` | JSON list of logins: `[{"user":"admin","password":"…","role":"admin"}, …]`. Roles: `admin`, `editor`, `viewer` (§5) |
 | `PARSER_URL`, `PARSER_SECRET` | Vercel (app) | the parser project's URL + a shared secret. Unset locally → the app spawns `python3 -m pipeline.cli` |
 | `SOLVER_URL` (optional) | Vercel (app) | where `/api/solve` (CP-SAT) lives; defaults to `PARSER_URL` (same pipeline project, same secret). Unset locally → the app spawns `python3 -m pipeline.solve_cli`. OR-Tools makes that project ~178 MB unpacked (limit 250) |
 | `PARSER_SECRET`, `ANTHROPIC_API_KEY` | Vercel (parser project) | the key is optional: without it the model step is skipped |
@@ -102,14 +105,25 @@ Seeding the sample through the real importer is also an end-to-end test: if the 
 - dropdowns for *Kind* and *Type*;
 - one example row per sheet.
 
-## 5. No auth: what protects a project
+## 5. Logins: what protects a project
 
-- **A project id is a UUID v4,** with 122 random bits. The URL `/p/<id>` is the key, like an unlisted doc link.
-  The API never lists projects: `GET /api/projects?ids=a,b,c` returns only the ids the browser already knows.
-- **The browser remembers its projects** in `localStorage` (just ids and names). Clearing site data loses the list,
-  not the projects. "Copy link" keeps them.
-- **Templates are read-only.** Every write route rejects a project with `template_key IS NOT NULL` with 403.
-- **Limit, stated plainly in the README:** anyone with a link can edit that project. Real auth is out of scope (README: Not building).
+There is no sign-up. You hand out a username and password (one per person or per group), and everyone on the same
+login shares one set of projects. That keeps "fifty reviewers" from meaning "fifty project states".
+
+- **Accounts** live in `AUTH_ACCOUNTS` (§3), parsed by `src/server/auth/accounts.ts`. Adding one is a redeploy.
+  Passwords are plain text in that env var: fine for handed-out demo logins, not for real users.
+- **Session = a signed cookie** (`dock.session`, HS256 JWT holding only the username, 30 days, httpOnly). Nothing is
+  stored server-side. The role is looked up in `AUTH_ACCOUNTS` on every request, so removing an account or changing its
+  role takes effect immediately. `src/server/auth/session.ts`.
+- **Pages:** `src/proxy.ts` redirects `/`, `/new` and `/p/*` to `/login` without a cookie. That's the optimistic check.
+- **API:** every route goes through `route()` (`src/server/http/route.ts`), which is where the real check lives:
+  no session → 401; a write from a `viewer` → 403; a `/api/projects/:pid` route → the project must be the caller's
+  (`project.owner`) or the caller an admin → else 403. Templates are readable by anyone and writable by no one.
+- **Roles:** `viewer` reads its own projects; `editor` reads and writes its own; `admin` reads and writes every
+  account's (the landing page lists them all, with an owner chip).
+- **`project.owner`** is the username that created it (migration 0008). Projects from before logins have `owner NULL`:
+  only admins see them, and the idle cleanup removes them.
+- Login and logout are server actions in `src/app/login/actions.ts`.
 
 ### Cleanup and abuse bounds
 

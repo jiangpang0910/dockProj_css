@@ -7,8 +7,9 @@ import { usePathname, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
-  CalendarDays, ChevronDown, Copy, FolderOpen, List, Pencil, Plus, Search, ShieldCheck, Ship, TriangleAlert, Upload, Waves,
+  CalendarDays, ChevronDown, Copy, Flag, FolderOpen, List, Pencil, Plus, Search, Ship, TriangleAlert, Upload, Waves,
 } from "lucide-react";
+import { AccountBadge } from "@/components/app/account";
 import { Logo } from "@/components/app/logo";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -16,11 +17,11 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import type { Session } from "@shared/contract";
 import { BookingEditorProvider, useBookingEditor } from "@/components/booking/booking-editor";
 import { ApiRequestError, errorMessage } from "@/lib/api/client";
 import { renameProject } from "@/lib/api/endpoints";
 import { qk } from "@/lib/api/keys";
-import { forgetProjects, rememberProject } from "@/lib/projects-store";
 import { cn } from "@/lib/utils";
 import { ProjectProvider, useProject, useProjectCtx } from "./project-context";
 import { TodayChip } from "./today-chip";
@@ -30,30 +31,28 @@ const NAV = [
   { href: "/availability", label: "Availability", icon: Search },
   { href: "/bookings", label: "Bookings", icon: List },
   { href: "/vessels", label: "Vessels", icon: Ship },
+  { href: "/events", label: "Events", icon: Flag },
   { href: "/berths", label: "Berths", icon: Waves },
   { href: "/import", label: "Import", icon: Upload },
   { href: "/conflicts", label: "Conflicts", icon: TriangleAlert },
-  { href: "/audit", label: "Audit", icon: ShieldCheck },
 ];
 
-export function ProjectShell({ pid, children }: { pid: string; children: React.ReactNode }) {
+export function ProjectShell({ pid, me, children }: { pid: string; me: Session; children: React.ReactNode }) {
   return (
     <ProjectProvider pid={pid}>
       <BookingEditorProvider>
-        <Frame>{children}</Frame>
+        <Frame me={me}>{children}</Frame>
       </BookingEditorProvider>
     </ProjectProvider>
   );
 }
 
-function Frame({ children }: { children: React.ReactNode }) {
+function Frame({ me, children }: { me: Session; children: React.ReactNode }) {
   const { pid, api } = useProjectCtx();
   const project = useProject();
   const conflicts = useQuery({ queryKey: qk.conflictSummary(pid), queryFn: () => api.conflictSummary() });
   const pathname = usePathname();
   const editor = useBookingEditor();
-
-  useEffect(() => { if (project.data) rememberProject(project.data); }, [project.data]);
 
   // N = new booking, anywhere in the project, unless typing
   useEffect(() => {
@@ -66,8 +65,8 @@ function Frame({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [editor]);
 
-  if (project.error instanceof ApiRequestError && project.error.status === 404) {
-    return <Gone pid={pid} />;
+  if (project.error instanceof ApiRequestError && (project.error.status === 404 || project.error.status === 403)) {
+    return <Gone status={project.error.status} />;
   }
 
   const base = `/p/${pid}`;
@@ -102,6 +101,7 @@ function Frame({ children }: { children: React.ReactNode }) {
             <Link href="/" className="md:hidden" aria-label="Home"><Logo withWord={false} /></Link>
             <ProjectMenu />
             <div className="flex-1" />
+            <AccountBadge me={me} className="hidden lg:inline-flex" />
             <ThemeToggle className="hidden sm:inline-flex" />
             <TodayChip />
             <Button size="sm" onClick={() => editor.openNew()} className="gap-1.5">
@@ -131,7 +131,7 @@ function ProjectMenu() {
   const [name, setName] = useState("");
   const rename = useMutation({
     mutationFn: () => renameProject(pid, { name: name.trim() }),
-    onSuccess: (p) => { qc.setQueryData(qk.project(pid), p); rememberProject(p); setRenaming(false); },
+    onSuccess: (p) => { qc.setQueryData(qk.project(pid), p); setRenaming(false); },
   });
   const originLabel = { sample: "Sample", defaults: "Default fleet", empty: "Own data" } as const;
 
@@ -150,7 +150,7 @@ function ProjectMenu() {
         <DropdownMenuContent className="w-56">
           <DropdownMenuItem onClick={() => { setName(project.data?.name ?? ""); setRenaming(true); }}><Pencil /> Rename</DropdownMenuItem>
           <DropdownMenuItem onClick={async () => {
-            try { await navigator.clipboard.writeText(`${location.origin}/p/${pid}`); toast.success("Link copied. Anyone with it can open this project."); }
+            try { await navigator.clipboard.writeText(`${location.origin}/p/${pid}`); toast.success("Link copied. It opens for this login and for admins."); }
             catch { toast.error("Couldn't copy — the link is in your address bar."); }
           }}><Copy /> Copy link</DropdownMenuItem>
           <DropdownMenuSeparator />
@@ -174,14 +174,17 @@ function ProjectMenu() {
   );
 }
 
-function Gone({ pid }: { pid: string }) {
-  useEffect(() => { forgetProjects([pid]); }, [pid]);
+function Gone({ status }: { status: 403 | 404 }) {
   return (
     <div className="scene scene-sunrise grid min-h-dvh place-items-center p-6">
       <div className="max-w-sm rounded-xl border bg-surface p-6 text-center shadow-sm">
         <Logo withWord={false} className="justify-center" />
-        <h1 className="mt-4 text-lg font-semibold">This project no longer exists</h1>
-        <p className="mt-2 text-sm text-ink-muted">Projects nobody opens for 14 days are cleared away. Start a fresh one — the sample takes a second.</p>
+        <h1 className="mt-4 text-lg font-semibold">{status === 403 ? "This project belongs to another login" : "This project no longer exists"}</h1>
+        <p className="mt-2 text-sm text-ink-muted">
+          {status === 403
+            ? "Sign in with that account, or ask an admin — admins can open every project."
+            : "Projects nobody opens for 14 days are cleared away. Start a fresh one — the sample takes a second."}
+        </p>
         <Link href="/" className="mt-5 inline-flex h-8 items-center rounded-lg bg-primary px-3 text-sm text-primary-foreground">Back to the start</Link>
       </div>
     </div>

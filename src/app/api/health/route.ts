@@ -13,4 +13,4 @@ export const GET = route(async () => {
     throw new ApiErr("UNAVAILABLE", "The database is unreachable.");
   }
   return { ok: true };
-});
+}, { auth: "none" });

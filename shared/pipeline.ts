@@ -13,7 +13,7 @@ const occupant = z.enum(["vessel", "event", "closure"]);
 
 export const ParsedBerthSchema = z.object({
   name: z.string().min(1),                 // "North Pier West"
-  kind: z.enum(["berth", "section"]),
+  kind: z.enum(["berth", "section"]).optional(),   // older parser output; berths have no kind any more (0007), ignored
   lengthFt: z.number().positive().nullable(),
   sortOrder: z.number().int(),
 });

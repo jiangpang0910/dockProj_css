@@ -74,7 +74,7 @@ export function CalendarView() {
   const data = sched.data;
   const allBerths = useMemo(() => data?.berths ?? [], [data]);
   const colors = useMemo(() => berthColors(allBerths), [allBerths]);
-  const shownBerths = allBerths.filter((b) => (state.sections || b.kind === "berth") && (!state.berths || state.berths.includes(b.id)));
+  const shownBerths = allBerths.filter((b) => !state.berths || state.berths.includes(b.id));
   const shownIds = new Set(shownBerths.map((b) => b.id));
   const typesKey = state.types.join(), idsKey = [...shownIds].join();
   const bookings = useMemo(() => {
@@ -119,7 +119,7 @@ export function CalendarView() {
           {state.lens === "berth" && (
             <select aria-label="Berth" value={entityId ?? ""} onChange={(e) => set({ id: e.target.value })}
               className="h-8 max-w-56 rounded-lg border border-input bg-surface px-2 text-sm">
-              {allBerths.map((b) => <option key={b.id} value={b.id}>{b.name} · {b.kind === "section" ? "shared" : ft(b.lengthFt)}</option>)}
+              {allBerths.map((b) => <option key={b.id} value={b.id}>{b.name} · {ft(b.lengthFt)}</option>)}
             </select>
           )}
           {state.lens === "vessel" && (
@@ -189,8 +189,8 @@ function Body({ state, date, view, today, entityId, berths, allBerths, bookings,
     if (scale === "day") return <DockBoard berths={berths} bookings={bookings} day={date} onOpen={onOpen} onCreate={(id, d) => onCreate(id, d, d)} />;
     if (scale === "year") return <YearHeatmap berths={berths} bookings={bookings} from={view.from} to={view.to} today={today} onMonth={toMonth} />;
     const rows: TimelineRow[] = berths.map((b) => ({
-      key: b.id, berthId: b.id, aria: `${b.name}, ${b.kind === "section" ? "shared section" : `${b.lengthFt} feet`}`,
-      label: <BerthLabel name={b.name} lengthFt={b.lengthFt} shared={b.kind === "section"} inactive={!b.active} />,
+      key: b.id, berthId: b.id, aria: `${b.name}, ${b.lengthFt == null ? "length not on record" : `${b.lengthFt} feet`}`,
+      label: <BerthLabel name={b.name} lengthFt={b.lengthFt} inactive={!b.active} />,
       bookings: bookings.filter((x) => x.berthId === b.id),
     }));
     return <Timeline rows={rows} from={view.from} to={view.to} today={today} occupancy={occ} barText={vesselBar}
@@ -205,7 +205,7 @@ function Body({ state, date, view, today, entityId, berths, allBerths, bookings,
     const label = (b: BookingView) => (b.occupantType === "vessel" && b.vesselLengthFt != null ? `${b.title} · ${ft(b.vesselLengthFt)}` : b.title);
     if (scale === "day") return <BerthAgenda berth={berth} bookings={bookings} day={date} onOpen={onOpen} onCreate={(id, d) => onCreate(id, d, d)} />;
     if (scale === "week") {
-      return <Timeline rows={[{ key: berth.id, berthId: berth.id, aria: berth.name, label: <BerthLabel name={berth.name} lengthFt={berth.lengthFt} shared={berth.kind === "section"} />, bookings: mine }]}
+      return <Timeline rows={[{ key: berth.id, berthId: berth.id, aria: berth.name, label: <BerthLabel name={berth.name} lengthFt={berth.lengthFt} />, bookings: mine }]}
         from={view.from} to={view.to} today={today} occupancy={occ} barText={vesselBar} onOpen={onOpen} onCreate={(id, s, e) => onCreate(id, s, e)} minColWidth={96} rowNoun="Berth" />;
     }
     if (scale === "month") return <MonthCalendar month={view.from} bookings={mine} today={today} onOpen={onOpen} onDay={(d) => onCreate(berth.id, d, d)} labelOf={label} />;
@@ -216,7 +216,7 @@ function Body({ state, date, view, today, entityId, berths, allBerths, bookings,
     for (const b of mine) for (let d = b.startDate < view.from ? view.from : b.startDate; d <= b.endDate && d <= view.to; d = addDays(d, 1)) occupiedDays.add(d);
     return (
       <div className="space-y-3">
-        <p className="text-sm text-ink-muted"><b className="num font-semibold text-ink">{occupiedDays.size}</b> of <span className="num">{diffDays(view.from, view.to) + 1}</span> days occupied · {berth.name} {berth.kind === "section" ? "(shared)" : ft(berth.lengthFt)}</p>
+        <p className="text-sm text-ink-muted"><b className="num font-semibold text-ink">{occupiedDays.size}</b> of <span className="num">{diffDays(view.from, view.to) + 1}</span> days occupied · {berth.name} {ft(berth.lengthFt)}</p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
           {months(12).map((m) => <MiniMonth key={m} month={m} bookings={mine} today={today} colorOf={() => "var(--harbor)"} onPick={() => toMonth(m)} />)}
         </div>
@@ -241,7 +241,7 @@ function Body({ state, date, view, today, entityId, berths, allBerths, bookings,
       for (const berth of berths) {
         const other = bookings.filter((b) => b.berthId === berth.id && b.occupantType !== "vessel");
         if (other.length) rows.push({ key: `nv-${berth.id}`, berthId: berth.id, group: "Events & closures", aria: `${berth.name} events and closures`, bookings: other,
-          label: <BerthLabel name={berth.name} lengthFt={berth.lengthFt} shared={berth.kind === "section"} /> });
+          label: <BerthLabel name={berth.name} lengthFt={berth.lengthFt} /> });
       }
     }
     return <Timeline rows={rows} from={view.from} to={view.to} today={today} occupancy={occ} barText={berthBar}
@@ -300,7 +300,7 @@ function Segmented<T extends string>({ label, value, options, onChange }: { labe
 }
 
 function Filters({ state, set, berths }: { state: CalState; set: (p: Partial<CalState>) => void; berths: import("@shared/contract").Berth[] }) {
-  const active = state.types.length < 3 || !state.sections || !!state.berths || state.nonVessel;
+  const active = state.types.length < 3 || !!state.berths || state.nonVessel;
   const toggleType = (t: OccupantType) => {
     const next = state.types.includes(t) ? state.types.filter((x) => x !== t) : [...state.types, t];
     if (next.length) set({ types: next });
@@ -326,9 +326,6 @@ function Filters({ state, set, berths }: { state: CalState; set: (p: Partial<Cal
             </label>
           ))}
         </fieldset>
-        <label className="flex items-center justify-between gap-2 border-t pt-2 text-sm">
-          Include shared sections <Switch checked={state.sections} onCheckedChange={(v) => set({ sections: v })} />
-        </label>
         {state.lens === "vessels" && (
           <label className="flex items-center justify-between gap-2 text-sm">
             Also show events &amp; closures <Switch checked={state.nonVessel} onCheckedChange={(v) => set({ nonVessel: v })} />
@@ -340,12 +337,12 @@ function Filters({ state, set, berths }: { state: CalState; set: (p: Partial<Cal
             {berths.map((b) => (
               <label key={b.id} className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={chosen.has(b.id)} onChange={() => toggleBerth(b.id)} className="accent-[var(--harbor)]" />
-                <span className="flex-1 truncate">{b.name}</span><span className="num text-xs text-ink-muted">{b.kind === "section" ? "shared" : ft(b.lengthFt)}</span>
+                <span className="flex-1 truncate">{b.name}</span><span className="num text-xs text-ink-muted">{ft(b.lengthFt)}</span>
               </label>
             ))}
           </div>
         </fieldset>
-        {active && <Button variant="ghost" size="sm" onClick={() => set({ types: TYPES, sections: true, berths: null, nonVessel: false })}>Reset filters</Button>}
+        {active && <Button variant="ghost" size="sm" onClick={() => set({ types: TYPES, berths: null, nonVessel: false })}>Reset filters</Button>}
       </PopoverContent>
     </Popover>
   );

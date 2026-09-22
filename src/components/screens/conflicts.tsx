@@ -4,7 +4,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Loader2, Sparkles, X } from "lucide-react";
 import { CONFLICT_TYPES, type Conflict, type ConflictStatus, type ConflictType, type Id, type ResolveConflictInput, type SolveResult } from "@shared/contract";
@@ -59,6 +59,7 @@ export function ConflictsScreen() {
     queryFn: ({ pageParam }) => api.listConflicts({ ...filter, cursor: pageParam ?? undefined, limit: 25 }),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextCursor,
+    placeholderData: keepPreviousData,   // switching filters keeps the old rows on screen instead of a blank list
   });
   const items = useMemo(() => list.data?.pages.flatMap((p) => p.items) ?? [], [list.data]);
   const s = summary.data;
@@ -228,7 +229,7 @@ function Empty({ status, filtered, total }: { status: ConflictStatus; filtered: 
 function useRefresh() {
   const { pid } = useProjectCtx();
   const qc = useQueryClient();
-  return () => { for (const k of ["conflicts", "schedule", "bookings", "vessels", "availability", "audit"]) qc.invalidateQueries({ queryKey: [pid, k] }); };
+  return () => { for (const k of ["conflicts", "schedule", "bookings", "vessels", "availability"]) qc.invalidateQueries({ queryKey: [pid, k] }); };
 }
 
 function BulkDismiss({ type, n, open, onOpenChange, onDone }: { type: ConflictType; n: number; open: boolean; onOpenChange: (v: boolean) => void; onDone: () => void }) {
@@ -366,16 +367,16 @@ function ConflictCard({ c, selectable, checked, onCheck, onResolved }:
           {avail.data && (
             <ul className="grid gap-1.5 sm:grid-cols-2">
               {avail.data.options.map((o) => {
-                const ok = o.free && o.fits;
+                const ok = o.free && o.fits !== false;   // null = no length on record: placeable, fit unverified
                 return (
                   <li key={o.berth.id}>
                     <button type="button" disabled={!ok || resolve.isPending} onClick={() => place(o.berth.id)}
                       className={cn("flex w-full items-center justify-between rounded-md border px-2.5 py-1.5 text-left text-sm",
                         ok ? "hover:border-ok hover:bg-ok-soft" : "cursor-not-allowed opacity-50", o.berth.id === c.berthId && "ring-1 ring-harbor/40")}>
-                      <span>{o.berth.name} <span className="num text-xs text-ink-muted">{o.berth.kind === "section" ? "shared" : ft(o.berth.lengthFt)}</span>
+                      <span>{o.berth.name} <span className="num text-xs text-ink-muted">{ft(o.berth.lengthFt)}</span>
                         {o.berth.id === c.berthId && <span className="ml-1 text-[10px] text-harbor">asked for</span>}</span>
                       <span className={cn("num text-xs", ok ? "text-ok" : "text-signal")}>
-                        {ok ? (o.slackFt != null ? `+${ft(o.slackFt)}` : "free") : !o.fits ? `short ${ft(-(o.slackFt ?? 0))}` : `held by ${o.conflicts[0]?.title ?? "another booking"}`}
+                        {ok ? (o.slackFt != null ? `+${ft(o.slackFt)}` : o.fits === null ? "free · fit unknown" : "free") : o.fits === false ? `short ${ft(-(o.slackFt ?? 0))}` : `held by ${o.conflicts[0]?.title ?? "another booking"}`}
                       </span>
                     </button>
                   </li>

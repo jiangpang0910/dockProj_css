@@ -57,3 +57,6 @@ __pycache__/
 
 # rendered diagrams
 /diagrams/
+
+# stray scratch copies (another session dumped build output here); Tailwind scans anything not ignored
+private/

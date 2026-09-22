@@ -1,8 +1,9 @@
 /** Projects: the workspace every other resource lives in (infrastructure.md §2, §5). */
-import type { ISODate, Project, ProjectInput } from "@shared/contract";
+import type { ISODate, Project, ProjectInput, Session } from "@shared/contract";
 import type { Queryable } from "../db/types";
 import { getDb } from "../db/pool";
 import { ApiErr, notFound } from "../http/api-error";
+import { requestProject } from "../http/request-context";
 import { todayIn } from "../domain/dates";
 import { isoTime } from "./mappers";
 
@@ -14,15 +15,19 @@ export interface ProjectRow {
   name: string;
   origin: Project["origin"];
   template_key: string | null;
+  owner: string | null;
   as_of_date: ISODate | null;
   created_at: unknown;
   last_opened_at: unknown;
 }
 
-/** Load a project or 404. `write: true` → 403 on a read-only template. */
+/**
+ * Load a project or 404. `write: true` → 403 on a read-only template.
+ * Reads reuse the row `route()` loaded for authorization (one round trip less per request); writes always re-read.
+ */
 export async function requireProject(q: Queryable, pid: string, opts: { write?: boolean } = {}): Promise<ProjectRow> {
-  const { rows } = await q.query<ProjectRow>("SELECT * FROM project WHERE id = $1", [pid]);
-  const p = rows[0];
+  const memo = opts.write ? undefined : requestProject.getStore();
+  const p = memo?.pid === pid ? memo.row : (await q.query<ProjectRow>("SELECT * FROM project WHERE id = $1", [pid])).rows[0];
   if (!p) throw notFound("Project");
   if (opts.write && p.template_key) throw new ApiErr("FORBIDDEN", "This is a read-only template project.");
   return p;
@@ -45,6 +50,7 @@ function toProject(r: Record<string, unknown>): Project {
     id: r.id as string,
     name: r.name as string,
     origin: r.origin as Project["origin"],
+    owner: (r.owner as string | null) ?? null,
     createdAt: isoTime(r.created_at),
     lastOpenedAt: isoTime(r.last_opened_at),
     counts: { berths: r.n_berths as number, vessels: r.n_vessels as number, bookings: r.n_bookings as number },
@@ -57,15 +63,25 @@ async function loadProject(q: Queryable, pid: string): Promise<Project> {
   return toProject(rows[0]);
 }
 
-/** Only the ids asked for (the ones this browser remembers). Never lists all; never returns templates. */
-export async function listProjects(ids: string[]): Promise<Project[]> {
-  if (!ids.length) return [];
+/** The caller's own projects; an admin sees every account's. Never returns templates. */
+export async function listProjects(session: Session): Promise<Project[]> {
+  const mine = session.role === "admin" ? "" : "AND p.owner = $1";
   const { rows } = await getDb().query(
-    `${PROJECT_SELECT} WHERE p.id = ANY($1::uuid[]) AND p.template_key IS NULL ORDER BY p.last_opened_at DESC`, [ids]);
+    `${PROJECT_SELECT} WHERE p.template_key IS NULL ${mine} ORDER BY p.last_opened_at DESC`,
+    session.role === "admin" ? [] : [session.user]);
   return rows.map(toProject);
 }
 
-export async function createProject(input: ProjectInput): Promise<Project> {
+/** "Open the sample": the account's existing copy if it has one, otherwise a fresh clone (one copy per login). */
+export async function openSample(session: Session): Promise<Project> {
+  const { rows } = await getDb().query<{ id: string }>(
+    "SELECT id FROM project WHERE owner = $1 AND origin = 'sample' AND template_key IS NULL ORDER BY last_opened_at DESC LIMIT 1",
+    [session.user]);
+  if (rows[0]) return getProject(rows[0].id);
+  return createProject({ name: "Sample — WHOI dock", start: "sample" }, session.user);
+}
+
+export async function createProject(input: ProjectInput, owner: string): Promise<Project> {
   const db = getDb();
   return db.tx(async (q) => {
     const { rows: [{ n }] } = await q.query<{ n: number }>(
@@ -75,14 +91,15 @@ export async function createProject(input: ProjectInput): Promise<Project> {
     let id: string;
     if (input.start === "empty") {
       const r = await q.query<{ id: string }>(
-        "INSERT INTO project (name, origin, as_of_date) VALUES ($1, 'empty', $2) RETURNING id",
-        [input.name, input.asOfDate ?? null]);
+        "INSERT INTO project (name, origin, as_of_date, owner) VALUES ($1, 'empty', $2, $3) RETURNING id",
+        [input.name, input.asOfDate ?? null, owner]);
       id = r.rows[0].id;
     } else {
       const t = await q.query<{ id: string }>("SELECT id FROM project WHERE template_key = $1", [input.start]);
       if (!t.rows[0]) throw new ApiErr("UNAVAILABLE", `The ${input.start} template hasn't been set up yet.`);
       const r = await q.query<{ id: string }>("SELECT clone_project($1, $2, $3) AS id", [t.rows[0].id, input.name, input.start]);
       id = r.rows[0].id;
+      await q.query("UPDATE project SET owner = $2 WHERE id = $1", [id, owner]);
       // The sample keeps its shipped "today" (2019-07-01); the default fleet takes the planning anchor if given.
       if (input.start === "defaults" && input.asOfDate !== undefined) {
         await q.query("UPDATE project SET as_of_date = $2 WHERE id = $1", [id, input.asOfDate]);

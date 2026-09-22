@@ -6,15 +6,14 @@ import { useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "motion/react";
 import { ArrowLeft, FileSpreadsheet, Loader2, Ship, Square } from "lucide-react";
-import { DATE_MAX, DATE_MIN, HARD_HORIZON_YEARS, type ProjectOrigin } from "@shared/contract";
+import { DATE_MAX, DATE_MIN, type ProjectOrigin } from "@shared/contract";
 import { Logo } from "@/components/app/logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiRequestError, errorMessage } from "@/lib/api/client";
 import { createProject, inProject } from "@/lib/api/endpoints";
-import { addYears, formatDay, isISODate, todayIn } from "@/lib/dates";
-import { rememberProject } from "@/lib/projects-store";
+import { formatDay, isISODate, todayIn } from "@/lib/dates";
 import { UploadBox, checkUpload } from "@/components/import/upload-box";
 import { cn } from "@/lib/utils";
 
@@ -30,14 +29,13 @@ export function NewProject() {
   const [until, setUntil] = useState("");
   const [fileError, setFileError] = useState<string | null>(null);
   const [step, setStep] = useState<"idle" | "creating" | "uploading">("idle");
-  const untilValue = until || (isISODate(from) ? addYears(from, HARD_HORIZON_YEARS) : "");
+  const untilValue = until;   // blank = the import's window is read from the file itself
 
   const create = useMutation({
     mutationFn: async () => {
       setStep("creating");
       const origin: ProjectOrigin = start === "upload" ? "empty" : start;
       const p = await createProject({ name: name.trim(), start: origin, asOfDate: isISODate(from) ? from : null });
-      rememberProject(p);          // remember before uploading, so a failed upload doesn't lose the project
       if (start === "upload" && file) {
         setStep("uploading");
         try {
@@ -108,12 +106,13 @@ export function NewProject() {
                   <UploadBox file={file} onFile={pickFile} error={fileError} />
                   <div className="mt-4 grid gap-4 sm:grid-cols-2">
                     <div className="space-y-1.5">
-                      <Label htmlFor="np-until">Planning until</Label>
+                      <Label htmlFor="np-until">Planning until <span className="font-normal text-ink-muted">(optional)</span></Label>
                       <Input id="np-until" type="date" min={from} max={DATE_MAX} className="num" value={untilValue} onChange={(e) => setUntil(e.target.value)} />
                     </div>
                     <p className="self-end text-xs text-ink-muted">
-                      Only bookings touching <span className="num">{isISODate(from) ? formatDay(from) : "…"}</span> →{" "}
-                      <span className="num">{untilValue ? formatDay(untilValue) : "…"}</span> are brought in.
+                      {untilValue
+                        ? <>Only bookings touching <span className="num">{isISODate(from) ? formatDay(from) : "…"}</span> → <span className="num">{formatDay(untilValue)}</span> are brought in.</>
+                        : <>Blank: everything in the file is brought in, and &ldquo;today&rdquo; moves to its first date if the file is from other years.</>}
                     </p>
                   </div>
                 </motion.div>

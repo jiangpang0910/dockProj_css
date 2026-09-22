@@ -35,15 +35,17 @@ export function validate(input: BookingInput, w: MockWorld, ctx: { source: "manu
   const berth = w.berths.find((b) => b.id === input.berthId);
   if (!berth) throw new UnknownEntity("berth");
   if (!berth.active) err({ code: "BERTH_INACTIVE", message: `${berth.name} is inactive and takes no new bookings.` });
-  const exclusive = berth.kind === "berth";
 
   let vessel: Vessel | undefined;
   if (isVessel && input.vesselId) {
     vessel = w.vessels.find((v) => v.id === input.vesselId);
     if (!vessel) throw new UnknownEntity("vessel");
+    if (manual && berth.lengthFt == null) {
+      err({ code: "BERTH_LENGTH_UNKNOWN", message: `${berth.name} has no length on record, so nothing can be shown to fit it. Add its length first.` });
+    }
     if (vessel.lengthFt == null) {
       if (manual) err({ code: "VESSEL_LENGTH_UNKNOWN", message: `${vessel.name} has no length on record. Add its length before booking it.` });
-    } else if (exclusive && berth.lengthFt != null && vessel.lengthFt > berth.lengthFt) {
+    } else if (berth.lengthFt != null && vessel.lengthFt > berth.lengthFt) {
       const shortByFt = Math.round((vessel.lengthFt - berth.lengthFt) * 10) / 10;
       err({ code: "VESSEL_TOO_LONG", message: `${vessel.name} (${vessel.lengthFt}′) is ${shortByFt}′ too long for ${berth.name} (${berth.lengthFt}′).`,
             details: { vesselLengthFt: vessel.lengthFt, berthLengthFt: berth.lengthFt, shortByFt } });
@@ -53,10 +55,8 @@ export function validate(input: BookingInput, w: MockWorld, ctx: { source: "manu
   if (rangeOk) {
     const live = w.bookings.filter((b) => b.status === "confirmed" && b.id !== ctx.excludeId && b.startDate <= e && s <= b.endDate)
       .sort((a, b) => (a.startDate < b.startDate ? -1 : 1));
-    if (exclusive) {
-      const clashes = live.filter((b) => b.berthId === berth.id);
-      if (clashes.length) err({ code: "OVERLAP", bookingIds: clashes.map((c) => c.id), message: `${berth.name} is held by ${describe(w, clashes, false)}.` });
-    }
+    const clashes = live.filter((b) => b.berthId === berth.id);
+    if (clashes.length) err({ code: "OVERLAP", bookingIds: clashes.map((c) => c.id), message: `${berth.name} is held by ${describe(w, clashes, false)}.` });
     if (vessel) {
       const elsewhere = live.filter((b) => b.vesselId === vessel!.id);
       if (elsewhere.length) err({ code: "VESSEL_DOUBLE_BERTHED", bookingIds: elsewhere.map((c) => c.id), message: `${vessel.name} is already booked: ${describe(w, elsewhere, true)}.` });

@@ -14,11 +14,10 @@ const SHEETS: { name: string; headers: string[]; widths: number[]; example: (str
   notes: string[]; lists?: Record<number, string[]> }[] = [
   {
     name: "Berths",
-    headers: ["Name", "Kind", "Length (ft)", "Order"],
-    widths: [28, 12, 13, 8],
-    example: ["e.g. North Pier West", "berth", 410, 1],
-    notes: ["Unique name", "berth = one occupant at a time; section = shared area", "Required for a berth, blank for a section", "Optional row order"],
-    lists: { 2: ["berth", "section"] },
+    headers: ["Name", "Length (ft)", "Order"],
+    widths: [28, 13, 8],
+    example: ["e.g. North Pier West", 410, 1],
+    notes: ["Unique name", "Leave blank if it isn't on record — nothing booked there can be checked for fit", "Optional row order"],
   },
   {
     name: "Vessels",

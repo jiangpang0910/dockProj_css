@@ -10,7 +10,6 @@ import { deleteBerth, patchBerth } from "@/server/services/berths";
 import { createVessel, deleteVessel, patchVessel } from "@/server/services/vessels";
 import { createProject, getProject, listProjects, deleteProject, MAX_USER_PROJECTS } from "@/server/services/projects";
 import { availability } from "@/server/services/availability";
-import { runAudit } from "@/server/services/audit";
 import { getSettings, putSettings } from "@/server/services/settings";
 
 let F: Awaited<ReturnType<typeof makeProject>>;
@@ -119,13 +118,13 @@ describe("bookings", () => {
   });
 });
 
-describe("availability and audit", () => {
+describe("availability", () => {
   it("ranks free-and-fits first, tightest fit first", async () => {
     await createBooking(F.pid, { berthId: F.SFE, occupantType: "closure", title: "Crane", startDate: "2027-03-06", endDate: "2027-03-06" });
     const r = await availability(F.pid, { startDate: "2027-03-05", endDate: "2027-03-09", lengthFt: 50 });
     expect(r.options.map((o) => [o.berth.name, o.free, o.fits, o.slackFt])).toEqual([
       ["North Pier West", true, true, 360],
-      ["Small Craft Slips", true, true, null],
+      ["Small Craft Slips", true, null, null],   // no length on record → fit unknowable
       ["South Float East", false, true, 40],
     ]);
     expect(r.options[2].conflicts[0].title).toBe("Crane");
@@ -135,21 +134,6 @@ describe("availability and audit", () => {
     expect((await fails(availability(F.pid, { startDate: "2027-03-05", endDate: "2027-03-09", vesselId: F.UNK }))).status).toBe(422);
   });
 
-  it("a healthy project audits clean; a hand-made overlap is found", async () => {
-    await createBooking(F.pid, vesselAt(F.NPW, F.BIG, "2027-03-05", "2027-03-20"));
-    await createBooking(F.pid, vesselAt(F.SFE, F.SMALL, "2027-03-05", "2027-03-09"));
-    expect((await runAudit(F.pid)).violations).toEqual([]);
-    // bypass the constraint to plant a bad row, as someone editing the DB by hand might
-    await getDb().exec("ALTER TABLE booking DROP CONSTRAINT booking_no_overlap");
-    await getDb().query(
-      `INSERT INTO booking (project_id, berth_id, berth_kind, occupant_type, title, start_date, end_date, source)
-       VALUES ($1, $2, 'berth', 'event', 'Sneaky', '2027-03-10', '2027-03-11', 'manual')`, [F.pid, F.NPW]);
-    const rep = await runAudit(F.pid);
-    expect(rep.summary).toEqual({ OVERLAP: 1 });
-    await getDb().query("DELETE FROM booking WHERE title = 'Sneaky'");
-    await getDb().exec(`ALTER TABLE booking ADD CONSTRAINT booking_no_overlap EXCLUDE USING gist (berth_id WITH =, period WITH &&)
-      WHERE (status = 'confirmed' AND berth_kind = 'berth')`);
-  });
 });
 
 describe("projects", () => {
@@ -158,14 +142,14 @@ describe("projects", () => {
     const d = await makeProject({ name: "Default fleet", template: "defaults", asOf: null });
     const s = await makeProject({ name: "Sample", template: "sample", asOf: "2019-07-01" });
     await db.query(
-      `INSERT INTO booking (project_id, berth_id, berth_kind, occupant_type, vessel_id, start_date, end_date, source)
-       VALUES ($1, $2, 'berth', 'vessel', $3, '2019-07-02', '2019-07-05', 'import')`, [s.pid, s.NPW, s.BIG]);
+      `INSERT INTO booking (project_id, berth_id, occupant_type, vessel_id, start_date, end_date, source)
+       VALUES ($1, $2, 'vessel', $3, '2019-07-02', '2019-07-05', 'import')`, [s.pid, s.NPW, s.BIG]);
     return { d, s };
   }
 
   it("opening the sample clones it: equal counts, no rows pointing back, today kept", async () => {
     const { s } = await makeTemplates();
-    const p = await createProject({ name: "Mine", start: "sample" });
+    const p = await createProject({ name: "Mine", start: "sample" }, "editor");
     expect(p.counts).toEqual({ berths: 3, vessels: 3, bookings: 1 });
     expect(p.origin).toBe("sample");
     expect((await getSettings(p.id)).asOfDate).toBe("2019-07-01");
@@ -176,9 +160,9 @@ describe("projects", () => {
 
   it("defaults clone takes the planning anchor; empty starts empty", async () => {
     await makeTemplates();
-    const d = await createProject({ name: "Fleet", start: "defaults", asOfDate: "2008-04-27" });
+    const d = await createProject({ name: "Fleet", start: "defaults", asOfDate: "2008-04-27" }, "editor");
     expect((await getSettings(d.id)).asOfDate).toBe("2008-04-27");
-    const e = await createProject({ name: "Blank", start: "empty" });
+    const e = await createProject({ name: "Blank", start: "empty" }, "editor");
     expect(e.counts).toEqual({ berths: 0, vessels: 0, bookings: 0 });
   });
 
@@ -186,7 +170,11 @@ describe("projects", () => {
     const { s } = await makeTemplates();
     const e = await fails(createBooking(s.pid, vesselAt(s.NPW, s.SMALL, "2019-08-01", "2019-08-02")));
     expect(e.status).toBe(403);
-    expect(await listProjects([s.pid, F.pid])).toHaveLength(1);
+    const mine = await createProject({ name: "Mine", start: "empty" }, "editor");
+    await createProject({ name: "Theirs", start: "empty" }, "other");
+    expect((await listProjects({ user: "editor", role: "editor" })).map((p) => p.id)).toEqual([mine.id]);
+    expect((await listProjects({ user: "admin", role: "admin" })).map((p) => p.id).sort()).not.toContain(s.pid);
+    expect(await listProjects({ user: "admin", role: "admin" })).toHaveLength(3);   // F (unowned), Mine, Theirs
   });
 
   it("get bumps lastOpenedAt; delete removes everything", async () => {
@@ -201,6 +189,6 @@ describe("projects", () => {
   it("at the cap, a new project → 503", async () => {
     await getDb().query(
       "INSERT INTO project (name, origin) SELECT 'p' || g, 'empty' FROM generate_series(1, $1) g", [MAX_USER_PROJECTS]);
-    expect((await fails(createProject({ name: "One too many", start: "empty" }))).status).toBe(503);
+    expect((await fails(createProject({ name: "One too many", start: "empty" }, "editor"))).status).toBe(503);
   });
 });

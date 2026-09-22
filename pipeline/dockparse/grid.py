@@ -36,14 +36,15 @@ NEUTRAL_INDEXED = {"9", "64", "65", "22", "23", "55"}
 
 
 def berth_from_label(label):
-    """'North Pier West - 410'' → ('North Pier West', 'berth', 410); section labels → (name, 'section', None)."""
+    """'North Pier West - 410'' → ('North Pier West', 410). A row whose label states no length → (name, None):
+    the berth is real, its length simply isn't on record (see manual.md R3)."""
     if not isinstance(label, str):
         return None
     if (m := BERTH_RE.match(label)):
         name = clean(m["name"])
-        return (name.title() if name.isupper() else name, "berth", num(m[2]))
+        return (name.title() if name.isupper() else name, num(m[2]))
     if (m := SECTION_RE.match(label)):
-        return (SECTION_NAMES[m[1].lower()], "section", None)
+        return (SECTION_NAMES[m[1].lower()], None)
     return None
 
 
@@ -94,8 +95,8 @@ def _text(v):
 def parse_grid(wb, ledger=None):
     """→ (cells, berths, issues, n_sheets, n_cells).
 
-    cells:  [{sheet, cell, label, berth, text, start, end, fill}]  (berth = (name, kind, len) or None; start/end = date)
-    berths: {name: {"kind", "lengths": {len: count}, "order"}}
+    cells:  [{sheet, cell, label, berth, text, start, end, fill}]  (berth = (name, len) or None; start/end = date)
+    berths: {name: {"lengths": {len: count}, "order"}}
     ledger: optional dict, filled with {(sheet, "B12"): what this parser did with that cell} (see audit.py)
     """
     cells, issues, berths, orphans = [], [], {}, []
@@ -196,12 +197,15 @@ def parse_grid(wb, ledger=None):
                 if label:
                     mark(ws.title, r, 1, "berth label" if berth else "row label (not a berth)")
                 if berth:
-                    b = berths.setdefault(berth[0], {"kind": berth[1], "lengths": {}, "order": len(berths) + 1})
-                    if berth[2] is not None:
-                        b["lengths"][berth[2]] = b["lengths"].get(berth[2], 0) + 1
-                    section = berth if berth[1] == "section" else None
+                    b = berths.setdefault(berth[0], {"lengths": {}, "order": len(berths) + 1})
+                    if berth[1] is not None:
+                        b["lengths"][berth[1]] = b["lengths"].get(berth[1], 0) + 1
+                    # A label with no length is the kind of row the sheet repeats (unlabeled) when more than one
+                    # boat sits there. Those extra rows belong to the same berth; two stays on the same days then
+                    # meet R2 and land in Conflicts for a person to judge, rather than being silently allowed.
+                    section = berth if berth[1] is None else None
                 elif label is None and section:
-                    berth = section  # another row of a multi-row section
+                    berth = section  # an unlabeled continuation row
                 for c in range(2, max_col + 1):  # numbers in a stay row (times like 1400) are not stays
                     if isinstance(ws.cell(r, c).value, (int, float)):
                         mark(ws.title, r, c, "number in a stay row (a time?), not read")

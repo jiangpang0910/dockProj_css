@@ -1,15 +1,14 @@
 "use client";
 // Vessels (frontend.md §3.5): search, create/edit, delete, and a fast lane for legacy vessels with no length.
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
-import type { Vessel, VesselInput } from "@shared/contract";
+import type { LengthFilter, Vessel, VesselInput } from "@shared/contract";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiRequestError, errorMessage } from "@/lib/api/client";
 import { ft } from "@/lib/format";
@@ -23,9 +22,10 @@ export function VesselsScreen() {
   const { pid, api } = useProjectCtx();
   const qc = useQueryClient();
   const [q, setQ] = useState("");
-  const [unknownOnly, setUnknownOnly] = useState(false);
+  const [length, setLength] = useState<LengthFilter | undefined>();   // undefined = every vessel
   const [page, setPage] = useState(0);
-  const list = useVessels(q.trim() || undefined, unknownOnly);
+  // One fetch for the whole fleet; search and the length filter run in memory so a click never waits on the network.
+  const list = useVessels();
   const [editing, setEditing] = useState<Vessel | "new" | null>(null);
   const [deleting, setDeleting] = useState<Vessel | null>(null);
   const invalidate = () => { qc.invalidateQueries({ queryKey: [pid, "vessels"] }); qc.invalidateQueries({ queryKey: [pid, "schedule"] }); };
@@ -34,7 +34,11 @@ export function VesselsScreen() {
     mutationFn: (v: Vessel) => api.deleteVessel(v.id),
     onSuccess: (_x, v) => { invalidate(); toast.success(`Deleted ${v.name}.`); setDeleting(null); },
   });
-  const all = list.data ?? [];
+  const all = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return (list.data ?? []).filter((v) => (!needle || v.name.toLowerCase().includes(needle))
+      && (length === undefined || (length === "known") === (v.lengthFt != null)));
+  }, [list.data, q, length]);
   // Paged here, not in the API: the booking form and the schedule's vessel picker need the whole list anyway.
   const pages = Math.max(1, Math.ceil(all.length / PAGE_SIZE));
   const at = Math.min(page, pages - 1);            // a delete can empty the last page
@@ -52,8 +56,13 @@ export function VesselsScreen() {
       </PageHeader>
       <div className="flex flex-wrap items-center gap-3">
         <Input placeholder="Search vessels" value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} className="max-w-xs" aria-label="Search vessels" />
-        <label className="flex items-center gap-2 text-sm">Length unknown <Switch checked={unknownOnly} onCheckedChange={(on) => { setUnknownOnly(on); setPage(0); }} /></label>
-        {unknownOnly && <span className="text-xs text-ink-muted">Legacy vessels without a length can&rsquo;t be booked by hand. Type a length and press Enter; the next row gets focus.</span>}
+        <div role="group" aria-label="Filter by length" className="flex items-center gap-0.5 rounded-lg border p-0.5">
+          {([[undefined, "All"], ["known", "Length known"], ["unknown", "Length unknown"]] as const).map(([value, label]) => (
+            <Button key={label} size="sm" variant={length === value ? "secondary" : "ghost"} aria-pressed={length === value}
+              onClick={() => { setLength(value); setPage(0); }}>{label}</Button>
+          ))}
+        </div>
+        {length === "unknown" && <span className="text-xs text-ink-muted">Legacy vessels without a length can&rsquo;t be booked by hand. Type a length and press Enter; the next row gets focus.</span>}
       </div>
       {list.error ? <ErrorBox message={errorMessage(list.error)} onRetry={() => list.refetch()} /> : (
         <div ref={table} className="scroll-mt-16 overflow-x-auto rounded-xl border bg-surface">
@@ -77,7 +86,9 @@ export function VesselsScreen() {
               ))}
               {!list.isLoading && rows.length === 0 && (
                 <tr><td colSpan={5} className="px-3 py-10 text-center text-ink-muted">
-                  {unknownOnly ? "Every vessel has a length. Nothing to fill in." : q ? `No vessel matches “${q}”.` : "No vessels yet — register the first one."}
+                  {length === "unknown" ? "Every vessel has a length. Nothing to fill in."
+                    : length === "known" ? "No vessel has a length yet."
+                    : q ? `No vessel matches “${q}”.` : "No vessels yet — register the first one."}
                 </td></tr>
               )}
             </tbody>

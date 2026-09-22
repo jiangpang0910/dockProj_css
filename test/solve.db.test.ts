@@ -59,7 +59,7 @@ async function fails(p: Promise<unknown>): Promise<ApiErr> {
 beforeAll(async () => { await freshDb(); }, 60_000);
 beforeEach(async () => {
   await getDb().query("TRUNCATE project CASCADE");
-  pid = (await createProject({ name: "Plan 2030", start: "empty", asOfDate: "2030-05-01" })).id;
+  pid = (await createProject({ name: "Plan 2030", start: "empty", asOfDate: "2030-05-01" }, "editor")).id;
   for (const wb of [holders, claims]) {
     const run = await uploadImport(pid, "x.xlsx", new Uint8Array([1]), { parsed: wb, planTo: "2030-12-31" });
     await commitImport(pid, run.id);

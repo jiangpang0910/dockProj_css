@@ -23,10 +23,10 @@ export async function createBerth(pid: string, input: BerthInput): Promise<Berth
   const q = getDb();
   await requireProject(q, pid, { write: true });
   const { rows } = await q.query(
-    `INSERT INTO berth (project_id, name, kind, length_ft, sort_order)
-     VALUES ($1, $2, $3, $4, COALESCE($5, (SELECT COALESCE(max(sort_order), 0) + 1 FROM berth WHERE project_id = $1)))
+    `INSERT INTO berth (project_id, name, length_ft, sort_order)
+     VALUES ($1, $2, $3, COALESCE($4, (SELECT COALESCE(max(sort_order), 0) + 1 FROM berth WHERE project_id = $1)))
      RETURNING *`,
-    [pid, normalizeName(input.name), input.kind, input.kind === "berth" ? input.lengthFt : null, input.sortOrder ?? null]);
+    [pid, normalizeName(input.name), input.lengthFt, input.sortOrder ?? null]);
   return toBerth(rows[0]);
 }
 
@@ -35,13 +35,8 @@ export async function patchBerth(pid: string, id: string, patch: BerthPatch): Pr
   await requireProject(q, pid, { write: true });
   const berth = await loadBerth(pid, id);
   if (patch.lengthFt !== undefined) {
-    if (berth.kind === "berth" && patch.lengthFt === null) {
-      throw new ApiErr("UNPROCESSABLE", "A berth needs a length. Only shared sections have none.");
-    }
-    if (berth.kind === "section" && patch.lengthFt !== null) {
-      throw new ApiErr("UNPROCESSABLE", "A shared section has no length. Delete it and create a berth instead.");
-    }
-    if (berth.kind === "berth" && patch.lengthFt != null && berth.lengthFt != null && patch.lengthFt < berth.lengthFt) {
+    // Clearing a length is allowed — it puts the berth back in the "fit unverified" state it arrives in.
+    if (patch.lengthFt != null && berth.lengthFt != null && patch.lengthFt < berth.lengthFt) {
       const { rows } = await q.query<{ id: string; name: string; length_ft: number }>(
         `SELECT b.id, v.name, v.length_ft FROM booking b JOIN vessel v ON v.id = b.vessel_id
          WHERE b.berth_id = $1 AND b.status = 'confirmed' AND v.length_ft > $2 ORDER BY b.start_date`, [id, patch.lengthFt]);

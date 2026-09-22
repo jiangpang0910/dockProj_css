@@ -5,7 +5,6 @@ import { freshDb } from "./helpers/db";
 import { seedTemplates } from "../db/seed";
 import { createProject } from "@/server/services/projects";
 import { getSettings } from "@/server/services/settings";
-import { runAudit } from "@/server/services/audit";
 import type { Db } from "@/server/db/types";
 
 let db: Db;
@@ -17,13 +16,12 @@ describe.skipIf(!fs.existsSync("pipeline/cli.py"))("seed templates (slow)", () =
     const again = await seedTemplates(db, { noModel: true });
     expect(again).toEqual(first);
 
-    const fleet = await createProject({ name: "Fleet", start: "defaults" });
+    const fleet = await createProject({ name: "Fleet", start: "defaults" }, "editor");
     expect(fleet.counts).toEqual({ berths: 8, vessels: 164, bookings: 0 });
 
-    const sample = await createProject({ name: "Sample", start: "sample" });
+    const sample = await createProject({ name: "Sample", start: "sample" }, "editor");
     expect(sample.counts.berths).toBe(8);
     expect(sample.counts.bookings).toBeGreaterThan(1500);
     expect((await getSettings(sample.id)).asOfDate).toBe("2019-07-01");
-    expect((await runAudit(sample.id)).violations).toEqual([]);
   }, 120_000);
 });

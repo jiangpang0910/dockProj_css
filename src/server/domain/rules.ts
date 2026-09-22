@@ -92,19 +92,24 @@ export async function validateBooking(
   if (!berth.active) {
     err({ code: "BERTH_INACTIVE", message: `${berth.name} is inactive and takes no new bookings.` });
   }
-  const exclusive = berth.kind === "berth";
 
-  // 4–5. Vessel length known (manual only), then R3 fit (exclusive berths only)
+  // 4–5. R3 fit. It needs BOTH lengths; either one missing and the fit is unknowable, never "fine".
+  // A person typing a booking is asked to fill the gap in (they have the boat in front of them); an import
+  // can't be, so the booking is made and the missing length is what the Vessels/Berths screens chase.
   let vessel: Vessel | null = null;
   if (isVessel && input.vesselId) {
     vessel = await store.getVessel(input.vesselId);
     if (!vessel) throw new UnknownEntityError("vessel", input.vesselId);
+    if (manual && berth.lengthFt == null) {
+      err({ code: "BERTH_LENGTH_UNKNOWN",
+            message: `${berth.name} has no length on record, so nothing can be shown to fit it. Add its length first.` });
+    }
     if (vessel.lengthFt == null) {
       if (manual) {
         err({ code: "VESSEL_LENGTH_UNKNOWN",
               message: `${vessel.name} has no length on record. Add its length before booking it.` });
       }
-    } else if (exclusive && berth.lengthFt != null && vessel.lengthFt > berth.lengthFt) {
+    } else if (berth.lengthFt != null && vessel.lengthFt > berth.lengthFt) {
       const shortByFt = Math.round((vessel.lengthFt - berth.lengthFt) * 10) / 10;
       err({ code: "VESSEL_TOO_LONG",
             message: `${vessel.name} (${vessel.lengthFt}′) is ${shortByFt}′ too long for ${berth.name} (${berth.lengthFt}′).`,
@@ -113,16 +118,15 @@ export async function validateBooking(
   }
 
   if (rangeOk) {
-    // 6. R2 — no overlap on an exclusive berth (sections are shared)
-    if (exclusive) {
-      const clashes = await store.overlapping(berth.id, s, e, ctx.excludeId);
-      if (clashes.length) {
-        err({ code: "OVERLAP", bookingIds: clashes.map((c) => c.id),
-              message: `${berth.name} is held by ${describe(clashes, false)}.` });
-      }
+    // 6. R2 — one occupant per berth per day. Every berth: whether its length is on record has nothing to
+    // do with whether two boats can be in the same place.
+    const clashes = await store.overlapping(berth.id, s, e, ctx.excludeId);
+    if (clashes.length) {
+      err({ code: "OVERLAP", bookingIds: clashes.map((c) => c.id),
+            message: `${berth.name} is held by ${describe(clashes, false)}.` });
     }
 
-    // 7. R4 — the vessel is in one place at a time (sections included)
+    // 7. R4 — the vessel is in one place at a time
     if (vessel) {
       const elsewhere = await store.vesselBookings(vessel.id, s, e, ctx.excludeId);
       if (elsewhere.length) {

@@ -32,7 +32,7 @@ export interface StageInput {
   existing: { berths: Berth[]; vessels: Vessel[]; bookings: ExistingBooking[] };
 }
 
-export interface StagedBerth { id: string; name: string; kind: Berth["kind"]; lengthFt: number | null; sortOrder: number }
+export interface StagedBerth { id: string; name: string; lengthFt: number | null; sortOrder: number }
 export interface StagedVessel {
   id: string; name: string; lengthFt: number | null; draftFt: number | null; operator: string | null; notes: string | null;
   isNew: boolean; // false = matches a vessel already in the project (commit keeps the existing one)
@@ -115,8 +115,7 @@ export async function stage({ parsed, window, existing }: StageInput): Promise<S
         message: `Berth "${pb.name}" already exists in this project; the existing one is kept.`, row: null });
       continue;
     }
-    const sb: StagedBerth = { id: randomUUID(), name: normalizeName(pb.name), kind: pb.kind,
-      lengthFt: pb.kind === "berth" ? pb.lengthFt : null, sortOrder: ++nextOrder };
+    const sb: StagedBerth = { id: randomUUID(), name: normalizeName(pb.name), lengthFt: pb.lengthFt, sortOrder: ++nextOrder };
     berthsOut.push(sb);
     berthByKey.set(k, { berth: { ...sb, active: true }, staged: true });
   }

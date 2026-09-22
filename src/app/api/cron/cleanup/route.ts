@@ -13,4 +13,4 @@ export const GET = route(async (req: NextRequest) => {
     throw new ApiErr("FORBIDDEN", "Cron only.");
   }
   return { deleted: await cleanupIdleProjects() };
-});
+}, { auth: "none" });

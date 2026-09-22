@@ -8,6 +8,7 @@ import { getDb } from "@/server/db/pool";
 import { ApiErr } from "@/server/http/api-error";
 import { toApiErr } from "@/server/http/route";
 import { createProject } from "@/server/services/projects";
+import { getSettings } from "@/server/services/settings";
 import { commitImport, discardImport, listIssues, resolveIssue, uploadImport } from "@/server/services/imports";
 import { conflictSummary, dismissConflicts, listConflicts, resolveConflict } from "@/server/services/conflicts";
 import { cancelBooking } from "@/server/services/bookings";
@@ -38,7 +39,7 @@ const grid: ParsedWorkbook = {
     row("South Float East", "vessel", "R/V High Drift", "2008-06-01", "2008-06-03", "D4"),   // 120 > 90 → conflict
     row("South Float East", "vessel", "M/V Mystery", "2008-07-01", "2008-07-02"),            // unknown vessel → created, length unknown
     row("Small Craft Slips", "event", "Sea Scouts", "2008-07-01", "2008-07-02"),
-    row("Small Craft Slips", "event", "Regatta", "2008-07-01", "2008-07-02"),               // sections are shared
+    row("Small Craft Slips", "event", "Regatta", "2008-07-03", "2008-07-04"),               // a length-unknown berth is still one-at-a-time
     row("North Pier West", "closure", "Crane work", "2010-03-01", "2010-03-02"),             // after the window
   ],
   issues: [
@@ -54,7 +55,7 @@ let pid: string;
 beforeAll(async () => { await freshDb(); }, 60_000);
 beforeEach(async () => {
   await getDb().query("TRUNCATE project CASCADE");
-  pid = (await createProject({ name: "Plan 2008", start: "empty", asOfDate: "2008-04-27" })).id;
+  pid = (await createProject({ name: "Plan 2008", start: "empty", asOfDate: "2008-04-27" }, "editor")).id;
 });
 
 const bytes = new Uint8Array([1, 2, 3]);
@@ -77,11 +78,24 @@ describe("upload → preview", () => {
     expect(await listBerths(pid)).toHaveLength(0);
   });
 
-  it("default window is today → +5 years; a planTo before today is refused", async () => {
+  it("without planTo the window is the file's own span, so nothing is skipped; a planTo before today is refused", async () => {
     const run = await uploadImport(pid, "grid.xlsx", bytes, { parsed: grid });
-    expect(run.window).toEqual({ from: "2008-04-27", to: "2013-04-27" });
-    expect(run.counts.outsideWindow).toBe(1);
+    expect(run.window).toEqual({ from: "2007-06-01", to: "2010-03-02" });
+    expect(run.counts).toMatchObject({ outsideWindow: 0, bookings: 6, conflicts: 3 });
     expect((await fails(uploadImport(pid, "g.xlsx", bytes, { parsed: grid, planTo: "2008-01-01" }))).status).toBe(400);
+  });
+
+  it("commit moves a today that falls outside the imported window to its start, and says so", async () => {
+    const late = (await createProject({ name: "Made today", start: "empty", asOfDate: "2026-09-22" }, "editor")).id;
+    const run = await uploadImport(late, "grid.xlsx", bytes, { parsed: grid });
+    expect((await getSettings(late)).asOfDate).toBe("2026-09-22");            // a preview writes nothing
+    const done = await commitImport(late, run.id);
+    expect(done.todaySet).toBe("2007-06-01");
+    expect(await getSettings(late)).toEqual({ asOfDate: "2007-06-01", asOfSource: "override" });
+    // a today already inside the window is the user's choice and stays
+    const inside = await commitImport(pid, (await uploadImport(pid, "grid.xlsx", bytes, { parsed: grid })).id);
+    expect(inside.todaySet).toBeUndefined();
+    expect((await getSettings(pid)).asOfDate).toBe("2008-04-27");
   });
 
   it("an unrecognised file → 422, nothing stored", async () => {
@@ -100,7 +114,7 @@ describe("commit, discard, triage", () => {
     expect((await listVessels(pid)).map((v) => [v.name, v.lengthFt])).toEqual([["M/V Mystery", null], ["R/V High Drift", 120], ["S/V Small", 60]]);
     const live = await listBookings(pid, { from: "2008-01-01", to: "2008-12-31" });
     expect(live.map((b) => [b.title, b.source])).toEqual([
-      ["R/V High Drift", "import"], ["Regatta", "import"], ["Sea Scouts", "import"], ["M/V Mystery", "import"]]);
+      ["R/V High Drift", "import"], ["Sea Scouts", "import"], ["M/V Mystery", "import"], ["Regatta", "import"]]);
     expect((await fails(commitImport(pid, run.id))).status).toBe(409);
   });
 
@@ -213,7 +227,7 @@ describe("conflicts", () => {
   it("a cloned project gets its template's open conflicts, pointing at its own berths", async () => {
     await committed();
     await getDb().query("UPDATE project SET template_key = 'sample' WHERE id = $1", [pid]);
-    const clone = await createProject({ name: "Mine", start: "sample" });
+    const clone = await createProject({ name: "Mine", start: "sample" }, "editor");
     const mine = (await listConflicts(clone.id, {})).items;
     expect(mine.map((c) => c.type)).toEqual(["OVERLAP", "VESSEL_TOO_LONG", "NO_BERTH"]);
     const cloneNpw = (await listBerths(clone.id)).find((b) => b.name === "North Pier West")!.id;
@@ -260,8 +274,7 @@ describe("deleting a project", () => {
 
 const SAMPLE = "sample_data/Dock Schedule - Synthetic Sample.xlsx";
 describe.skipIf(!fs.existsSync("pipeline/cli.py"))("the real pipeline (slow)", () => {
-  it("imports the sample workbook end to end, full window, and the result audits clean", async () => {
-    const { runAudit } = await import("@/server/services/audit");
+  it("imports the sample workbook end to end, full window", async () => {
     const run = await uploadImport(pid, "sample.xlsx", new Uint8Array(fs.readFileSync(SAMPLE)), { fullWindow: true, noModel: true });
     expect(run.format).toBe("legacy_grid");
     expect(run.counts.berths).toBe(8);
@@ -269,9 +282,6 @@ describe.skipIf(!fs.existsSync("pipeline/cli.py"))("the real pipeline (slow)", (
     expect(run.counts.conflicts).toBeGreaterThan(150);          // mostly NO_BERTH (overflow rows under South Float East)
     await commitImport(pid, run.id);
     expect((await conflictSummary(pid)).open).toBe(run.counts.conflicts);
-    const audit = await runAudit(pid);
-    expect(audit.violations).toEqual([]);
-    expect(audit.checkedBookings).toBe(run.counts.bookings);
   }, 120_000);
 });
 
@@ -280,7 +290,7 @@ describe.skipIf(!fs.existsSync("pipeline/cli.py"))("a filled-in dock-template.xl
     const ExcelJS = (await import("exceljs")).default;
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.readFile("public/dock-template.xlsx");
-    wb.getWorksheet("Berths")!.addRows([["Dock A", "berth", 100, 1], ["Slips", "section", null, 2]]);
+    wb.getWorksheet("Berths")!.addRows([["Dock A", 100, 1], ["Slips", null, 2]]);
     wb.getWorksheet("Vessels")!.addRows([["R/V Fits", 80, null, null, null], ["R/V Too Big", 150, null, null, null]]);
     wb.getWorksheet("Bookings")!.addRows([
       ["Dock A", "vessel", "R/V Fits", new Date(Date.UTC(2008, 5, 1)), new Date(Date.UTC(2008, 5, 3)), null],

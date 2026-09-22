@@ -73,9 +73,9 @@ export async function insertBooking(q: Queryable, pid: string, raw: BookingInput
   if (violations.some((v) => v.severity === "error")) throw ruleError(violations);
   const berth = (await store.getBerth(input.berthId))!;
   const { rows } = await q.query<{ id: string }>(
-    `INSERT INTO booking (project_id, berth_id, berth_kind, occupant_type, vessel_id, title, start_date, end_date, source, notes)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-    [pid, berth.id, berth.kind, input.occupantType, input.vesselId, input.title, input.startDate, input.endDate, ctx.source, input.notes]);
+    `INSERT INTO booking (project_id, berth_id, occupant_type, vessel_id, title, start_date, end_date, source, notes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+    [pid, berth.id, input.occupantType, input.vesselId, input.title, input.startDate, input.endDate, ctx.source, input.notes]);
   return loadView(q, pid, rows[0].id);
 }
 
@@ -120,10 +120,10 @@ export async function patchBooking(pid: string, id: string, patch: BookingPatch)
     const berth = (await store.getBerth(merged.berthId))!;
 
     const r = await q.query(
-      `UPDATE booking SET berth_id = $3, berth_kind = $4, occupant_type = $5, vessel_id = $6, title = $7,
-         start_date = $8, end_date = $9, notes = $10, version = version + 1, updated_at = now()
-       WHERE id = $1 AND project_id = $2 AND version = $11`,
-      [id, pid, berth.id, berth.kind, merged.occupantType, merged.vesselId, merged.title,
+      `UPDATE booking SET berth_id = $3, occupant_type = $4, vessel_id = $5, title = $6,
+         start_date = $7, end_date = $8, notes = $9, version = version + 1, updated_at = now()
+       WHERE id = $1 AND project_id = $2 AND version = $10`,
+      [id, pid, berth.id, merged.occupantType, merged.vesselId, merged.title,
        merged.startDate, merged.endDate, merged.notes, expectedVersion]);
     if (r.rowCount === 0) throw stale();
     return loadView(q, pid, id);

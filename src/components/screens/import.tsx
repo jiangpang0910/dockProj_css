@@ -7,14 +7,14 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { animate, motion, useMotionValue, useTransform } from "motion/react";
 import { toast } from "sonner";
 import { Bot, CheckCircle2, ChevronDown, FileSpreadsheet, Loader2, Trash2, X } from "lucide-react";
-import { HARD_HORIZON_YEARS, type ConflictType, type ImportIssue, type ImportRun } from "@shared/contract";
+import type { ConflictType, ImportIssue, ImportRun } from "@shared/contract";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiRequestError, errorMessage } from "@/lib/api/client";
 import { qk } from "@/lib/api/keys";
-import { addYears, formatDay, formatInstant, formatRange, isISODate } from "@/lib/dates";
+import { formatDay, formatInstant, formatRange, isISODate } from "@/lib/dates";
 import { ft, occupantLabel, plural } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { OccupantIcon } from "@/components/booking/occupant";
@@ -65,12 +65,11 @@ function Upload({ onDone }: { onDone: (r: ImportRun) => void }) {
   const qc = useQueryClient();
   const settings = useSettings();
   const from = settings.data?.asOfDate;
-  const [until, setUntil] = useState("");
+  const [until, setUntil] = useState("");   // blank = the window is read from the file
   const [file, setFile] = useState<File | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const untilValue = until || (from ? addYears(from, HARD_HORIZON_YEARS) : "");
   const up = useMutation({
-    mutationFn: () => api.uploadImport(file!, untilValue || undefined),
+    mutationFn: () => api.uploadImport(file!, until || undefined),
     onSuccess: (r) => { qc.invalidateQueries({ queryKey: qk.imports(pid) }); onDone(r); },
   });
   return (
@@ -82,17 +81,19 @@ function Upload({ onDone }: { onDone: (r: ImportRun) => void }) {
           <p className="text-[11px] text-ink-muted">The project&rsquo;s today — change it with the chip at the top.</p>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="im-to">Planning until</Label>
-          <Input id="im-to" type="date" className="num" min={from} value={untilValue} onChange={(e) => setUntil(e.target.value)} />
+          <Label htmlFor="im-to">Planning until <span className="font-normal text-ink-muted">(optional)</span></Label>
+          <Input id="im-to" type="date" className="num" min={from} value={until} onChange={(e) => setUntil(e.target.value)} />
+          <p className="text-[11px] text-ink-muted">Blank: the dates come from the file.</p>
         </div>
         <p className="self-center text-sm text-ink-muted">
-          Only bookings touching this window are brought in. Everything else in the file is counted and skipped, so planning
-          one season isn&rsquo;t buried under decades of history.
+          {until
+            ? <>Only bookings touching today → until are brought in. Everything else in the file is counted and skipped, so planning one season isn&rsquo;t buried under decades of history.</>
+            : <>Everything in the file is brought in, whatever years it covers. If the project&rsquo;s today falls outside them, it moves to the file&rsquo;s first date when you commit, so the schedule opens on the data.</>}
         </p>
       </div>
       <UploadBox file={file} error={err} onFile={(f) => { setErr(null); if (!f) return; const p = checkUpload(f); if (p) setErr(p); else setFile(f); }} />
       <div className="mt-4 flex items-center gap-3">
-        <Button disabled={!file || !isISODate(untilValue) || up.isPending} onClick={() => up.mutate()}>
+        <Button disabled={!file || (until !== "" && !isISODate(until)) || up.isPending} onClick={() => up.mutate()}>
           {up.isPending && <Loader2 className="animate-spin" />}{up.isPending ? "Reading the spreadsheet…" : "Upload and preview"}
         </Button>
         <span className="text-xs text-ink-muted">Nothing is written to the schedule until you commit.</span>
@@ -116,12 +117,19 @@ function RunView({ runId, onBack }: { runId: string; onBack: () => void }) {
   const [confirm, setConfirm] = useState(false);
   const refreshAll = () => {
     qc.invalidateQueries({ queryKey: qk.imports(pid) });
-    for (const k of ["schedule", "bookings", "vessels", "berths", "availability", "audit"]) qc.invalidateQueries({ queryKey: [pid, k] });
+    for (const k of ["schedule", "bookings", "vessels", "berths", "availability"]) qc.invalidateQueries({ queryKey: [pid, k] });
     qc.invalidateQueries({ queryKey: qk.project(pid) });
   };
   const commit = useMutation({
     mutationFn: () => api.commitImport(runId),
-    onSuccess: (r) => { qc.setQueryData(qk.importRun(pid, runId), r); refreshAll(); setConfirm(false); toast.success(`Committed ${plural(r.counts.bookings, "booking")}.`); },
+    onSuccess: (r) => {
+      qc.setQueryData(qk.importRun(pid, runId), r); refreshAll(); setConfirm(false);
+      toast.success(`Committed ${plural(r.counts.bookings, "booking")}.`);
+      if (r.todaySet) {
+        qc.invalidateQueries({ queryKey: qk.settings(pid) });
+        toast(`Today moved to ${formatDay(r.todaySet)} to match the file. Change it with the chip at the top.`);
+      }
+    },
   });
   const discard = useMutation({
     mutationFn: () => api.discardImport(runId),
@@ -347,15 +355,15 @@ function IssueCard({ issue, run }: { issue: ImportIssue; run: ImportRun }) {
           {avail.data && (
             <ul className="grid gap-1.5 sm:grid-cols-2">
               {avail.data.options.map((o) => {
-                const ok = o.free && o.fits;
+                const ok = o.free && o.fits !== false;   // null = no length on record: placeable, fit unverified
                 return (
                   <li key={o.berth.id}>
                     <button type="button" disabled={!ok || resolve.isPending}
                       onClick={() => resolve.mutate({ action: "create_booking", berthId: o.berth.id, ...(needsLength && lengthFt ? { vesselLengthFt: lengthFt } : {}) })}
                       className={cn("flex w-full items-center justify-between rounded-md border px-2.5 py-1.5 text-left text-sm", ok ? "hover:border-ok hover:bg-ok-soft" : "cursor-not-allowed opacity-50")}>
-                      <span>{o.berth.name} <span className="num text-xs text-ink-muted">{o.berth.kind === "section" ? "shared" : ft(o.berth.lengthFt)}</span></span>
+                      <span>{o.berth.name} <span className="num text-xs text-ink-muted">{ft(o.berth.lengthFt)}</span></span>
                       <span className={cn("num text-xs", ok ? "text-ok" : "text-signal")}>
-                        {ok ? (o.slackFt != null ? `+${ft(o.slackFt)}` : "free") : !o.fits ? `short ${ft(-(o.slackFt ?? 0))}` : `held by ${o.conflicts[0]?.title ?? "another booking"}`}
+                        {ok ? (o.slackFt != null ? `+${ft(o.slackFt)}` : o.fits === null ? "free · fit unknown" : "free") : o.fits === false ? `short ${ft(-(o.slackFt ?? 0))}` : `held by ${o.conflicts[0]?.title ?? "another booking"}`}
                       </span>
                     </button>
                   </li>

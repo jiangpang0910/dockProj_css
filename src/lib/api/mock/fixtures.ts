@@ -27,13 +27,13 @@ export const newId = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : seededUuid(Math.random);
 
 type DefaultsFile = {
-  berths: { name: string; lengthFt: number | null; kind: "berth" | "section"; sortOrder: number }[];
+  berths: { name: string; lengthFt: number | null; sortOrder: number }[];
   vessels: { name: string; lengthFt: number; draftFt: number | null }[];
 };
 const D = defaults as unknown as DefaultsFile;
 
 export function defaultBerths(): Berth[] {
-  return D.berths.map((b) => ({ id: newId(), name: b.name, lengthFt: b.lengthFt, kind: b.kind, active: true, sortOrder: b.sortOrder }));
+  return D.berths.map((b) => ({ id: newId(), name: b.name, lengthFt: b.lengthFt, active: true, sortOrder: b.sortOrder }));
 }
 
 export function defaultVessels(): Vessel[] {
@@ -62,9 +62,9 @@ export function sampleProject(): { berths: Berth[]; vessels: Vessel[]; bookings:
     !bookings.some((b) => b.vesselId === vid && overlaps(b.startDate, b.endDate, s, e));
 
   for (const berth of berths) {
-    const exclusive = berth.kind === "berth";
-    const fits = vessels.filter((v) => v.lengthFt != null && (!exclusive || v.lengthFt <= (berth.lengthFt ?? 0)) && (exclusive || v.lengthFt <= 60));
-    if (exclusive) {
+    // no length on record → nothing to check; small boats are what such rows held in the source sheet
+    const fits = vessels.filter((v) => v.lengthFt != null && v.lengthFt <= (berth.lengthFt ?? 60));
+    {
       let d: ISODate = addDays("2019-04-01", Math.floor(r() * 4));
       while (d < "2019-10-31") {
         const roll = r();
@@ -86,16 +86,6 @@ export function sampleProject(): { berths: Berth[]; vessels: Vessel[]; bookings:
           }
         }
         d = addDays(d, len + Math.floor(r() * (r() < 0.5 ? 1 : 5)));
-      }
-    } else {
-      // shared sections: many small boats, overlapping freely
-      for (let i = 0; i < 38; i++) {
-        const s = addDays("2019-05-01", Math.floor(r() * 170));
-        const e = addDays(s, Math.floor(r() * 6));
-        const candidates = fits.filter((v) => vesselFree(v.id, s, e));
-        if (!candidates.length) continue;
-        const v = pick(candidates);
-        bookings.push(mk({ berthId: berth.id, occupantType: "vessel", vesselId: v.id, title: v.name, startDate: s, endDate: e }));
       }
     }
   }

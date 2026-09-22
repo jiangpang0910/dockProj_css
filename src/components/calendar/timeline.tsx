@@ -256,11 +256,11 @@ export function Timeline({
 }
 
 /** Row label for a berth: name + length (length is always visible — §2 principle 3). */
-export function BerthLabel({ name, lengthFt, shared, inactive }: { name: string; lengthFt: number | null; shared: boolean; inactive?: boolean }) {
+export function BerthLabel({ name, lengthFt, inactive }: { name: string; lengthFt: number | null; inactive?: boolean }) {
   return (
     <span className="flex w-full min-w-0 items-baseline justify-between gap-x-2 py-1 @max-[140px]:flex-col @max-[140px]:gap-0">
       <span className={cn("max-w-full truncate font-medium", inactive && "text-ink-muted line-through")}>{name}</span>
-      <span className="num shrink-0 text-xs text-ink-muted">{shared ? "shared" : ft(lengthFt)}</span>
+      <span className="num shrink-0 text-xs text-ink-muted">{ft(lengthFt)}</span>
     </span>
   );
 }

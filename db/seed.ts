@@ -19,7 +19,7 @@ export const SAMPLE_XLSX = path.join(ROOT, "sample_data/Dock Schedule - Syntheti
 export const SAMPLE_AS_OF = "2019-07-01";
 
 interface Defaults {
-  berths: { name: string; kind: "berth" | "section"; lengthFt: number | null; sortOrder: number }[];
+  berths: { name: string; kind?: string; lengthFt: number | null; sortOrder: number }[];   // kind: older defaults.json, ignored
   vessels: { name: string; lengthFt: number; draftFt: number | null }[];
 }
 
@@ -44,11 +44,10 @@ export async function seedTemplates(db: Db, opts: SeedOpts = {}): Promise<{ defa
       const { rows: [p] } = await q.query<{ id: string }>(
         "INSERT INTO project (name, origin, template_key) VALUES ('Default fleet', 'defaults', 'defaults') RETURNING id");
       await q.query(
-        `INSERT INTO berth (project_id, name, kind, length_ft, sort_order)
-         SELECT $1, x.name, x.kind, x.length_ft, x.sort_order
-         FROM jsonb_to_recordset($2::jsonb) AS x(name text, kind text, length_ft numeric, sort_order int)`,
-        [p.id, JSON.stringify(d.berths.map((b) => ({ name: normalizeName(b.name), kind: b.kind,
-          length_ft: b.kind === "berth" ? b.lengthFt : null, sort_order: b.sortOrder })))]);
+        `INSERT INTO berth (project_id, name, length_ft, sort_order)
+         SELECT $1, x.name, x.length_ft, x.sort_order
+         FROM jsonb_to_recordset($2::jsonb) AS x(name text, length_ft numeric, sort_order int)`,
+        [p.id, JSON.stringify(d.berths.map((b) => ({ name: normalizeName(b.name), length_ft: b.lengthFt, sort_order: b.sortOrder })))]);
       const seen = new Set<string>();
       const vessels = d.vessels.filter((v) => { const k = normalizeName(v.name).toLowerCase(); return !seen.has(k) && !!seen.add(k); });
       await q.query(

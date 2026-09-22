@@ -276,7 +276,7 @@ def _run_grid(wb, use_model, ledger=None):
                                       f"Check it.", "row": None})
 
     # 4. berths from the labels (most common length wins), vessels from the registry + the schedule
-    berths = [{"name": name, "kind": b["kind"],
+    berths = [{"name": name,
                "lengthFt": max(b["lengths"], key=b["lengths"].get) if b["lengths"] else None,
                "sortOrder": b["order"]} for name, b in grid_berths.items()]
     vessels = {k: {"name": v["name"], "lengthFt": v["lengthFt"], "draftFt": v["draftFt"], "operator": None, "notes": None}

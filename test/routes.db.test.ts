@@ -3,9 +3,11 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { freshDb } from "./helpers/db";
 import { makeProject } from "./helpers/seed";
+import { cookieFor, installAccounts } from "./helpers/auth";
 import { getDb } from "@/server/db/pool";
 import * as projects from "@/app/api/projects/route";
 import * as project from "@/app/api/projects/[pid]/route";
+import * as sample from "@/app/api/projects/sample/route";
 import * as bookings from "@/app/api/projects/[pid]/bookings/route";
 import * as validateRoute from "@/app/api/projects/[pid]/bookings/validate/route";
 import * as schedule from "@/app/api/projects/[pid]/schedule/route";
@@ -14,16 +16,28 @@ import * as imports from "@/app/api/projects/[pid]/imports/route";
 import * as cleanup from "@/app/api/cron/cleanup/route";
 
 let F: Awaited<ReturnType<typeof makeProject>>;
-beforeAll(async () => { await freshDb(); }, 60_000);
+const COOKIE: Record<string, string> = {};
+beforeAll(async () => {
+  installAccounts();
+  for (const u of ["admin", "editor", "other", "viewer"] as const) COOKIE[u] = await cookieFor(u);
+  await freshDb();
+}, 60_000);
 beforeEach(async () => {
   await getDb().query("TRUNCATE project CASCADE");
   F = await makeProject();
+  await getDb().query("UPDATE project SET owner = 'editor' WHERE id = $1", [F.pid]);
 });
 
-const req = (url: string, init?: { method?: string; json?: unknown; body?: BodyInit; headers?: Record<string, string> }) =>
+type Who = "admin" | "editor" | "other" | "viewer" | "nobody";
+/** A request as `as` (default: the editor who owns F). */
+const req = (url: string, init?: { method?: string; json?: unknown; body?: BodyInit; headers?: Record<string, string>; as?: Who }) =>
   new NextRequest(new URL(url, "http://test"), {
     method: init?.method ?? "GET",
-    headers: init?.json !== undefined ? { "content-type": "application/json", ...init?.headers } : init?.headers,
+    headers: {
+      ...(init?.as === "nobody" ? {} : { cookie: COOKIE[init?.as ?? "editor"] }),
+      ...(init?.json !== undefined ? { "content-type": "application/json" } : {}),
+      ...init?.headers,
+    },
     body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body,
   });
 const ctx = <P extends Record<string, string>>(params: P) => ({ params: Promise.resolve(params) });
@@ -77,12 +91,46 @@ describe("routes", () => {
     expect((await berth.DELETE(req("/x", { method: "DELETE" }), ctx({ pid: F.pid, id: F.NPW }))).status).toBe(409);
   });
 
-  it("projects: POST empty → 201; GET ?ids returns only known, non-template ids", async () => {
+  it("projects: POST empty → 201 owned by the caller; GET lists only the caller's (admin: everyone's)", async () => {
     const r = await projects.POST(req("/api/projects", { method: "POST", json: { name: "Mine", start: "empty" } }), noParams);
     expect(r.status).toBe(201);
-    const { id } = await r.json();
-    const list = await projects.GET(req(`/api/projects?ids=${id},${crypto.randomUUID()}`), noParams);
-    expect((await list.json()).map((p: { id: string }) => p.id)).toEqual([id]);
+    const { id, owner } = await r.json();
+    expect(owner).toBe("editor");
+    const ids = async (as: Who) => (await (await projects.GET(req("/api/projects", { as }), noParams)).json()).map((p: { id: string }) => p.id).sort();
+    expect(await ids("editor")).toEqual([F.pid, id].sort());
+    expect(await ids("other")).toEqual([]);
+    expect(await ids("admin")).toEqual([F.pid, id].sort());
+  });
+
+  it("no session → 401 on every route; a viewer → 403 on writes, 200 on reads", async () => {
+    expect((await projects.GET(req("/api/projects", { as: "nobody" }), noParams)).status).toBe(401);
+    expect((await project.GET(req("/x", { as: "nobody" }), ctx({ pid: F.pid }))).status).toBe(401);
+    expect((await (await projects.GET(req("/api/projects", { as: "nobody" }), noParams)).json()).error.code).toBe("UNAUTHORIZED");
+    const asViewer = await projects.POST(req("/api/projects", { method: "POST", json: { name: "No", start: "empty" }, as: "viewer" }), noParams);
+    expect(asViewer.status).toBe(403);
+    await getDb().query("UPDATE project SET owner = 'viewer' WHERE id = $1", [F.pid]);
+    expect((await project.GET(req("/x", { as: "viewer" }), ctx({ pid: F.pid }))).status).toBe(200);
+    expect((await project.PATCH(req("/x", { method: "PATCH", json: { name: "Nope" }, as: "viewer" }), ctx({ pid: F.pid }))).status).toBe(403);
+  });
+
+  it("another account's project → 403 (admins get in); a template is readable by anyone", async () => {
+    expect((await project.GET(req("/x", { as: "other" }), ctx({ pid: F.pid }))).status).toBe(403);
+    expect((await project.GET(req("/x", { as: "admin" }), ctx({ pid: F.pid }))).status).toBe(200);
+    expect((await project.GET(req("/x", { as: "editor" }), ctx({ pid: F.pid }))).status).toBe(200);
+    const t = await makeProject({ template: "defaults" });
+    expect((await project.GET(req("/x", { as: "other" }), ctx({ pid: t.pid }))).status).toBe(200);
+    expect((await project.PATCH(req("/x", { method: "PATCH", json: { name: "Nope" }, as: "admin" }), ctx({ pid: t.pid }))).status).toBe(403);
+  });
+
+  it("POST /projects/sample: one copy per login, reused on the next click", async () => {
+    await makeProject({ name: "Sample", template: "sample" });
+    const first = await sample.POST(req("/api/projects/sample", { method: "POST" }), noParams);
+    expect(first.status).toBe(200);
+    const { id } = await first.json();
+    const again = await sample.POST(req("/api/projects/sample", { method: "POST" }), noParams);
+    expect((await again.json()).id).toBe(id);
+    const theirs = await sample.POST(req("/api/projects/sample", { method: "POST", as: "other" }), noParams);
+    expect((await theirs.json()).id).not.toBe(id);
   });
 
   it("import upload: missing file → 400", async () => {

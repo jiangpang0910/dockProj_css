@@ -51,7 +51,7 @@ async function blockersFor(q: Queryable, rows: ConflictRowDb[]): Promise<Map<str
      FROM conflict c
      JOIN booking_view bv ON bv.project_id = c.project_id AND bv.status = 'confirmed'
                          AND bv.start_date <= c.end_date AND bv.end_date >= c.start_date
-                         AND ((c.type = 'OVERLAP' AND bv.berth_id = c.berth_id AND bv.berth_kind = 'berth')
+                         AND ((c.type = 'OVERLAP' AND bv.berth_id = c.berth_id)
                            OR (c.type = 'VESSEL_DOUBLE_BERTHED' AND bv.vessel_id = c.vessel_id))
      WHERE c.id = ANY($1::uuid[])
      ORDER BY bv.start_date`, [ids]);

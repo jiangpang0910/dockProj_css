@@ -68,7 +68,7 @@ export function BookingEditorProvider({ children }: { children: React.ReactNode 
 interface FormValues { occupantType: OccupantType; vesselId: string; title: string; berthId: string; startDate: string; endDate: string; notes: string }
 
 function invalidateBookings(qc: ReturnType<typeof useQueryClient>, pid: string) {
-  for (const k of ["schedule", "bookings", "booking", "availability", "audit"]) qc.invalidateQueries({ queryKey: [pid, k] });
+  for (const k of ["schedule", "bookings", "booking", "availability"]) qc.invalidateQueries({ queryKey: [pid, k] });
   qc.invalidateQueries({ queryKey: qk.project(pid) });
 }
 
@@ -220,8 +220,8 @@ function BookingForm({ mode, onClose }: { mode: FormMode; onClose: () => void })
             <option value="">Choose a berth…</option>
             {berths.data?.map((b) => (
               <option key={b.id} value={b.id}>
-                {b.name} · {b.kind === "section" ? "shared" : ft(b.lengthFt)}
-                {vessel?.lengthFt != null && b.lengthFt != null && b.kind === "berth" && vessel.lengthFt > b.lengthFt ? "  (too short)" : ""}
+                {b.name} · {ft(b.lengthFt)}
+                {vessel?.lengthFt != null && b.lengthFt != null && vessel.lengthFt > b.lengthFt ? "  (too short)" : ""}
               </option>
             ))}
           </select>

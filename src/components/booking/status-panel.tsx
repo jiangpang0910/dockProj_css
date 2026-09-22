@@ -48,7 +48,7 @@ function Result({ violations, vessel, berth, onOpenBooking, onFindBerth, lengthF
 }) {
   const errors = violations.filter((v) => v.severity === "error");
   const warnings = violations.filter((v) => v.severity === "warning");
-  const canFit = vessel?.lengthFt != null && berth?.lengthFt != null && berth.kind === "berth";
+  const canFit = vessel?.lengthFt != null && berth?.lengthFt != null;
   const blockedBySchedule = errors.some((e) => ["OVERLAP", "VESSEL_TOO_LONG", "BERTH_INACTIVE"].includes(e.code));
 
   return (
@@ -59,7 +59,7 @@ function Result({ violations, vessel, berth, onOpenBooking, onFindBerth, lengthF
           <div className="font-medium">
             {canFit
               ? <>Fits with <span className="num">{ft(berth!.lengthFt! - vessel!.lengthFt!)}</span> to spare · berth free</>
-              : berth?.kind === "section" ? "Shared section — no overlap or length limits" : "Berth free for these days"}
+              : berth && berth.lengthFt == null ? "Berth free — its length isn't on record, so fit can't be checked" : "Berth free for these days"}
           </div>
         </div>
       )}

@@ -3,7 +3,8 @@ import type * as T from "@shared/contract";
 import { api, qs } from "./client";
 
 export const health        = () => api<{ ok: true }>("/health");
-export const listProjects  = (ids: T.Id[]) => api<T.Project[]>(`/projects?${qs({ ids: ids.join(",") })}`);
+export const listProjects  = () => api<T.Project[]>("/projects");
+export const openSample    = () => api<T.Project>("/projects/sample", { method: "POST" });
 export const createProject = (body: T.ProjectInput) => api<T.Project>("/projects", { method: "POST", json: body });
 export const getProject    = (pid: T.Id) => api<T.Project>(`/projects/${pid}`);
 export const renameProject = (pid: T.Id, body: T.ProjectPatch) => api<T.Project>(`/projects/${pid}`, { method: "PATCH", json: body });
@@ -28,7 +29,7 @@ export const inProject = (pid: T.Id) => {
     updateBerth:   (id: T.Id, body: T.BerthPatch) => api<T.Berth>(`${P}/berths/${id}`, { method: "PATCH", json: body }),
     deleteBerth:   (id: T.Id) => api<void>(`${P}/berths/${id}`, { method: "DELETE" }),
 
-    listVessels:   (q?: string, lengthUnknown?: boolean) => api<T.Vessel[]>(`${P}/vessels?${qs({ q, lengthUnknown: lengthUnknown || undefined })}`),
+    listVessels:   (q?: string, length?: T.LengthFilter) => api<T.Vessel[]>(`${P}/vessels?${qs({ q, length })}`),
     createVessel:  (body: T.VesselInput) => api<T.Vessel>(`${P}/vessels`, { method: "POST", json: body }),
     updateVessel:  (id: T.Id, body: Partial<T.VesselInput>) => api<T.Vessel>(`${P}/vessels/${id}`, { method: "PATCH", json: body }),
     deleteVessel:  (id: T.Id) => api<void>(`${P}/vessels/${id}`, { method: "DELETE" }),
@@ -70,7 +71,6 @@ export const inProject = (pid: T.Id) => {
     applyProposals:   (body: T.ApplyProposalsInput) =>
       api<T.ApplyProposalsResult>(`${P}/conflicts/apply`, { method: "POST", json: body }),
 
-    audit:         () => api<T.AuditReport>(`${P}/audit`),
   };
 };
 export type ProjectApi = ReturnType<typeof inProject>;

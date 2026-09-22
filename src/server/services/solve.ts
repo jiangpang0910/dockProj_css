@@ -76,10 +76,10 @@ export async function buildSolverInput(pid: string, req: SolveRequest):
   const vesselIds = [...new Set(open.map((r) => r.vessel_id).filter((v): v is string => !!v))];
   const [berths, berthBusy, vesselBusy] = await Promise.all([
     q.query<{ id: string; name: string; length_ft: number | null }>(
-      "SELECT id, name, length_ft FROM berth WHERE project_id = $1 AND active AND kind = 'berth' ORDER BY sort_order, lower(name)", [pid]),
+      "SELECT id, name, length_ft FROM berth WHERE project_id = $1 AND active ORDER BY sort_order, lower(name)", [pid]),
     q.query<{ berth_id: string; start_date: string; end_date: string }>(
       `SELECT berth_id, start_date, end_date FROM booking_view
-       WHERE project_id = $1 AND status = 'confirmed' AND berth_kind = 'berth' AND start_date <= $3 AND end_date >= $2`,
+       WHERE project_id = $1 AND status = 'confirmed' AND start_date <= $3 AND end_date >= $2`,
       [pid, from, to]),
     q.query<{ vessel_id: string; start_date: string; end_date: string }>(
       `SELECT vessel_id, start_date, end_date FROM booking_view

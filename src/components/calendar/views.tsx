@@ -39,12 +39,11 @@ export function DockBoard({ berths, bookings, day, onOpen, onCreate }: {
         const mine = bookings.filter((b) => b.berthId === berth.id).sort(byStart);
         const here = mine.filter((b) => covers(b, day));
         const next = mine.find((b) => b.startDate > day);
-        const shared = berth.kind === "section";
         return (
           <section key={berth.id} className="rounded-xl border bg-surface p-3">
             <header className="mb-2.5 flex items-baseline justify-between gap-2">
               <h3 className="truncate font-semibold">{berth.name}</h3>
-              <span className="num text-xs text-ink-muted">{shared ? "shared" : ft(berth.lengthFt)}</span>
+              <span className="num text-xs text-ink-muted">{ft(berth.lengthFt)}</span>
             </header>
             {here.length ? (
               <div className="space-y-1.5">
@@ -192,7 +191,7 @@ export function YearHeatmap({ berths, bookings, from, to, today, onMonth }: {
           <div key={berth.id} className="flex items-center gap-2 py-1">
             <div className="flex w-42 shrink-0 items-baseline justify-between gap-2 pr-2 text-sm">
               <span className="truncate font-medium">{berth.name}</span>
-              <span className="num text-[11px] text-ink-muted">{berth.kind === "section" ? "shared" : `${Math.round((occupied / days.length) * 100)}%`}</span>
+              <span className="num text-[11px] text-ink-muted">{`${Math.round((occupied / days.length) * 100)}%`}</span>
             </div>
             <div className="grid h-6 flex-1 gap-px" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}
               role="img" aria-label={`${berth.name}: occupied ${occupied} of ${days.length} days`}>

@@ -41,7 +41,7 @@ spreadsheet (our template, or the original workbook). Each project is private to
 
 - A constraint solver / OR-Tools. Availability search plus tightest-fit ranking covers the need.
 - A segment tree / interval tree. See sizing below — it would add code and gain nothing.
-- Auth, billing, notifications. One role: the dock coordinator. Projects are workspaces behind an unguessable link, not accounts.
+- Sign-up, billing, notifications. Logins are handed out (`AUTH_ACCOUNTS`), not created by users; projects belong to the login that made them.
 - Rescheduling historical conflicts. Old rows are data to audit, not decisions to redo.
 
 ## What the sample data tells us
@@ -127,7 +127,7 @@ Each has a default I used in the docs. Change the default here first, then the d
 | D10 | Booking in the past (before "today")? | Allowed, with an `IN_PAST` warning — not blocked |
 | D11 | Concurrent users? | **One user for v1.** Later: the DB constraint serializes writes (first commit wins, no app queue); rejections go to a log (backend.md §8) |
 | D12 | How far ahead can you book? | Manual bookings, measured from "today": **> 2 years → `FAR_FUTURE` warning** (catches typos like 2037 for 2027, still saveable); **> 5 years → `BEYOND_HORIZON` error** (no squatting berths for a decade; keeps R6 length edits from being frozen by far-off bookings). Imports exempt. Sanity bounds 1997-01-01 … 2050-12-31 for everything |
-| D13 | Multiple workspaces? | **Projects**, no login: the link is the key. "Open the sample" clones a read-only template per visitor, so reviewers never see each other's edits. Idle 14 days → deleted |
+| D13 | Multiple workspaces? | **Projects**, owned by a **handed-out login** (username + password, no sign-up; infrastructure.md §5). Everyone on one login shares its projects; admins see all. "Open the sample" clones a read-only template once per login. Idle 14 days → deleted |
 | D14 | Upload format for your own data? | **Our template** (Berths / Vessels / Bookings sheets) *and* the legacy grid, auto-detected |
 | D15 | Who parses uploads? | **Python pipeline** (`pipeline/`), deployed as its own Vercel function. Regex first; Claude Haiku only for cells regex can't place (1 unique string in the sample), optional. TS keeps the planning window and the rules |
 | D16 | What does an upload bring in? | Only bookings touching the **planning window**: project "today" → `planTo` (default +5y). Violations are flagged as issues, never a wholesale reject |

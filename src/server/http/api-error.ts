@@ -4,6 +4,7 @@ export type ApiErrorCode = ApiError["error"]["code"];
 
 const STATUS: Record<ApiErrorCode, number> = {
   VALIDATION: 400,
+  UNAUTHORIZED: 401,
   FORBIDDEN: 403,
   NOT_FOUND: 404,
   CONFLICT: 409,
@@ -27,6 +28,8 @@ export class ApiErr extends Error {
 
 export const notFound = (what: string) => new ApiErr("NOT_FOUND", `${what} not found.`);
 export const badRequest = (message: string) => new ApiErr("VALIDATION", message);
+export const unauthorized = () => new ApiErr("UNAUTHORIZED", "Sign in to continue.");
+export const forbidden = (message: string) => new ApiErr("FORBIDDEN", message);
 
 /** backend.md §4: any schedule-state violation (overlap, double-berthed) → 409; otherwise 422. All violations included. */
 export function ruleError(violations: Violation[]): ApiErr {

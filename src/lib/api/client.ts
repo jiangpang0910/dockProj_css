@@ -37,6 +37,10 @@ export async function api<T>(path: string, init?: Init): Promise<T> {
   let body: unknown;
   try { body = await res.json(); } catch { body = null; }
   if (!res.ok) {
+    // No session (expired, or the account was removed): back to the login page, and return here afterwards.
+    if (res.status === 401 && typeof window !== "undefined") {
+      window.location.assign(new URL(`/login?next=${encodeURIComponent(location.pathname + location.search)}`, location.origin).href);
+    }
     const err = (body as ApiError | null)?.error ? (body as ApiError)
       : { error: { code: "INTERNAL" as const, message: `Request failed (${res.status}).` } };
     throw new ApiRequestError(res.status, err);

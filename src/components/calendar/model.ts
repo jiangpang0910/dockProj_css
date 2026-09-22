@@ -18,7 +18,7 @@ export const SCALES: { id: Scale; label: string; key: string }[] = [
 
 export interface CalState {
   lens: Lens; id: string | null; scale: Scale; date: ISODate | null;
-  types: OccupantType[]; sections: boolean; berths: string[] | null; nonVessel: boolean;
+  types: OccupantType[]; berths: string[] | null; nonVessel: boolean;
 }
 const ALL_TYPES: OccupantType[] = ["vessel", "event", "closure"];
 
@@ -28,7 +28,7 @@ export function readState(p: URLSearchParams): CalState {
   const types = p.get("types") ? (p.get("types")!.split(",").filter((t) => ALL_TYPES.includes(t as OccupantType)) as OccupantType[]) : ALL_TYPES;
   return {
     lens, scale, id: p.get("id"), date: /^\d{4}-\d{2}-\d{2}$/.test(p.get("date") ?? "") ? p.get("date") : null,
-    types: types.length ? types : ALL_TYPES, sections: p.get("sections") !== "0",
+    types: types.length ? types : ALL_TYPES,
     berths: p.get("berths") ? p.get("berths")!.split(",").filter(Boolean) : null,
     nonVessel: p.get("nonvessel") === "1",
   };
@@ -41,7 +41,6 @@ export function writeState(s: CalState): string {
   p.set("scale", s.scale);
   if (s.date) p.set("date", s.date);
   if (s.types.length !== ALL_TYPES.length) p.set("types", s.types.join(","));
-  if (!s.sections) p.set("sections", "0");
   if (s.berths) p.set("berths", s.berths.join(","));
   if (s.nonVessel) p.set("nonvessel", "1");
   return p.toString();
@@ -99,9 +98,9 @@ export function assignLanes<T extends { startDate: ISODate; endDate: ISODate }>(
   });
 }
 
-/** Share of exclusive, active berths occupied on each day of [from, to]. */
+/** Share of active berths occupied on each day of [from, to]. */
 export function occupancy(berths: Berth[], bookings: BookingView[], from: ISODate, to: ISODate): { day: ISODate; share: number; taken: number; total: number }[] {
-  const exclusive = new Set(berths.filter((b) => b.kind === "berth" && b.active).map((b) => b.id));
+  const exclusive = new Set(berths.filter((b) => b.active).map((b) => b.id));
   const total = exclusive.size;
   const days = eachDay(from, to);
   const taken = new Map<ISODate, Set<string>>(days.map((d) => [d, new Set()]));

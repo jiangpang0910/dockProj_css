@@ -15,7 +15,7 @@ from openpyxl.utils import get_column_letter
 from .classify import clean, vessel_display, vessel_key
 
 HEADERS = {
-    "berths": ["name", "kind", "length (ft)", "order"],
+    "berths": ["name", "length (ft)", "order"],
     "vessels": ["name", "length (ft)", "draft (ft)", "operator", "notes"],
     "bookings": ["berth", "type", "vessel / title", "start", "end", "notes"],
 }
@@ -116,24 +116,22 @@ def parse_template(wb, only=None):
 
     for sheet, r, v in records("berths") or ():
         name = _text(v["name"])
-        kind = (_text(v["kind"]) or "").lower()
         length, length_ok = _feet(v["length (ft)"])
         if not name:
             issue("INVALID_VALUE", "error", sheet, ref(r, 0), "Berth name is empty; row skipped.")
             continue
-        if kind not in ("berth", "section"):
-            issue("INVALID_VALUE", "error", sheet, ref(r, 1), f"Kind must be \"berth\" or \"section\" (got \"{v['kind']}\"); row skipped.")
-            continue
-        if not length_ok or (kind == "berth" and length is None) or (kind == "section" and length is not None):
-            need = "a length in feet" if kind == "berth" else "no length"
-            issue("INVALID_VALUE", "error", sheet, ref(r, 2), f"A {kind} needs {need}; row skipped.")
+        # A blank length is allowed: the berth exists, its length just isn't on record, and nothing booked
+        # there can be checked for fit until someone fills it in. A malformed one ("about 40m") is an error.
+        if not length_ok:
+            issue("INVALID_VALUE", "error", sheet, ref(r, 1),
+                  f"Length must be a number of feet or blank (got \"{v['length (ft)']}\"); row skipped.")
             continue
         if name.lower() in berth_names:
             issue("DUPLICATE_NAME", "warning", sheet, ref(r, 0), f"Berth \"{name}\" appears twice; the first one was kept.")
             continue
         order = v["order"] if isinstance(v["order"], int) else len(berths) + 1
         berth_names.add(name.lower())
-        berths.append({"name": name, "kind": kind, "lengthFt": length, "sortOrder": order})
+        berths.append({"name": name, "lengthFt": length, "sortOrder": order})
 
     for sheet, r, v in records("vessels") or ():
         name = _text(v["name"])

@@ -85,9 +85,10 @@ export async function uploadImport(pid: string, filename: string, bytes: Uint8Ar
   const p = await requireProject(db, pid, { write: true });
   if (bytes.byteLength > MAX_UPLOAD_BYTES) throw badRequest("Files must be 4 MB or smaller.");
 
-  const from = asOfDate(p);
-  const to = opts.planTo ?? addYears(from, HARD_HORIZON_YEARS);
-  if (!isISODate(to) || to < from) throw badRequest(`planTo must be a real date on or after the project's today (${from}).`);
+  const today = asOfDate(p);
+  if (opts.planTo !== undefined && (!isISODate(opts.planTo) || opts.planTo < today)) {
+    throw badRequest(`planTo must be a real date on or after the project's today (${today}).`);
+  }
 
   const parsed = opts.parsed ?? (await parseWorkbook(bytes, { noModel: opts.noModel }));
   if (!parsed.format) {
@@ -95,6 +96,13 @@ export async function uploadImport(pid: string, filename: string, bytes: Uint8Ar
       ?? "This file is neither our template (Berths / Vessels / Bookings sheets) nor the year-per-sheet workbook.";
     throw new ApiErr("UNPROCESSABLE", why);
   }
+
+  // The window. An explicit planTo plans from the project's today. Otherwise the file decides: everything it holds
+  // is brought in, and on commit the project's today follows it (commitImport) — so a reviewer handed a workbook
+  // from years ago doesn't have to work out its dates before uploading. A file with no dated rows keeps the old default.
+  const window = opts.planTo
+    ? { from: today, to: opts.planTo }
+    : fileWindow(parsed) ?? { from: today, to: addYears(today, HARD_HORIZON_YEARS) };
 
   // Load the project once (not per row): berths, vessels, confirmed bookings.
   const [berths, vessels, bookings] = await Promise.all([
@@ -106,7 +114,7 @@ export async function uploadImport(pid: string, filename: string, bytes: Uint8Ar
   ]);
   const plan = await stage({
     parsed,
-    window: opts.fullWindow ? null : { from, to },
+    window: opts.fullWindow ? null : window,
     existing: {
       berths: berths.rows.map(toBerth),
       vessels: vessels.rows.map(toVessel),
@@ -115,9 +123,20 @@ export async function uploadImport(pid: string, filename: string, bytes: Uint8Ar
     },
   });
 
-  const window = opts.fullWindow ? { from: "1997-01-01", to: "2050-12-31" } : { from, to };
-  const id = await db.tx((q) => persistPlan(q, pid, filename, parsed, plan, window));
+  const stored = opts.fullWindow ? { from: "1997-01-01", to: "2050-12-31" } : window;
+  const id = await db.tx((q) => persistPlan(q, pid, filename, parsed, plan, stored));
   return loadRun(db, pid, id);
+}
+
+/** Earliest start → latest end over the rows that parsed. Issue rows don't count: a stray 1999 cell shouldn't set the window. */
+function fileWindow(parsed: ParsedWorkbook): { from: ISODate; to: ISODate } | null {
+  let from: ISODate | null = null;
+  let to: ISODate | null = null;
+  for (const r of parsed.rows) {
+    if (from === null || r.startDate < from) from = r.startDate;
+    if (to === null || r.endDate > to) to = r.endDate;
+  }
+  return from !== null && to !== null ? { from, to } : null;
 }
 
 /** One INSERT per table, rows passed as a JSON array (fast over a pooled connection: no per-row round trips). */
@@ -132,10 +151,10 @@ async function persistPlan(
   const json = (v: unknown) => JSON.stringify(v);
   if (plan.berths.length) {
     await q.query(
-      `INSERT INTO import_staged_berth (id, import_id, name, kind, length_ft, sort_order)
-       SELECT x.id, $1, x.name, x.kind, x.length_ft, x.sort_order
-       FROM jsonb_to_recordset($2::jsonb) AS x(id uuid, name text, kind text, length_ft numeric, sort_order int)`,
-      [id, json(plan.berths.map((b) => ({ id: b.id, name: b.name, kind: b.kind, length_ft: b.lengthFt, sort_order: b.sortOrder })))]);
+      `INSERT INTO import_staged_berth (id, import_id, name, length_ft, sort_order)
+       SELECT x.id, $1, x.name, x.length_ft, x.sort_order
+       FROM jsonb_to_recordset($2::jsonb) AS x(id uuid, name text, length_ft numeric, sort_order int)`,
+      [id, json(plan.berths.map((b) => ({ id: b.id, name: b.name, length_ft: b.lengthFt, sort_order: b.sortOrder })))]);
   }
   if (plan.vessels.length) {
     await q.query(
@@ -189,24 +208,25 @@ async function persistPlan(
 /** Berths, then vessels (existing names kept), then bookings — set-based, one transaction. Constraints re-check every row. */
 export async function commitImport(pid: string, id: string): Promise<ImportRun> {
   const db = getDb();
+  let todaySet: ISODate | null = null;
   await db.tx(async (q) => {
-    await requireProject(q, pid, { write: true });
-    const { rows } = await q.query<{ status: string }>(
-      "SELECT status FROM import_run WHERE id = $1 AND project_id = $2 FOR UPDATE", [id, pid]);
+    const p = await requireProject(q, pid, { write: true });
+    const { rows } = await q.query<{ status: string; plan_from: string; plan_to: string }>(
+      "SELECT status, plan_from, plan_to FROM import_run WHERE id = $1 AND project_id = $2 FOR UPDATE", [id, pid]);
     if (!rows[0]) throw notFound("Import");
     if (rows[0].status !== "previewed") throw new ApiErr("CONFLICT", `This import is already ${rows[0].status}.`);
 
     await q.query(
-      `INSERT INTO berth (project_id, name, kind, length_ft, sort_order)
-       SELECT $2, name, kind, length_ft, sort_order FROM import_staged_berth WHERE import_id = $1
+      `INSERT INTO berth (project_id, name, length_ft, sort_order)
+       SELECT $2, name, length_ft, sort_order FROM import_staged_berth WHERE import_id = $1
        ON CONFLICT (project_id, lower(name)) DO NOTHING`, [id, pid]);
     await q.query(
       `INSERT INTO vessel (project_id, name, length_ft, draft_ft, operator, notes)
        SELECT $2, name, length_ft, draft_ft, operator, notes FROM import_staged_vessel WHERE import_id = $1
        ON CONFLICT (project_id, lower(name)) DO NOTHING`, [id, pid]);
     await q.query(
-      `INSERT INTO booking (project_id, berth_id, berth_kind, occupant_type, vessel_id, title, start_date, end_date, source, notes)
-       SELECT $2, be.id, be.kind, sb.occupant_type, v.id, sb.title, sb.start_date, sb.end_date, 'import', sb.notes
+      `INSERT INTO booking (project_id, berth_id, occupant_type, vessel_id, title, start_date, end_date, source, notes)
+       SELECT $2, be.id, sb.occupant_type, v.id, sb.title, sb.start_date, sb.end_date, 'import', sb.notes
        FROM import_staged_booking sb
        LEFT JOIN import_staged_berth isb ON isb.id = sb.staged_berth_id
        JOIN berth be ON be.project_id = $2
@@ -221,8 +241,17 @@ export async function commitImport(pid: string, id: string): Promise<ImportRun> 
          vessel_id = (SELECT v.id FROM vessel v WHERE v.project_id = $2 AND lower(v.name) = lower(c.vessel_name))
        WHERE c.import_id = $1 AND c.status = 'staged'`, [id, pid]);
     await q.query("UPDATE import_run SET status = 'committed', committed_at = now() WHERE id = $1", [id]);
+
+    // A project made today, a workbook from years ago: with today outside what was just imported the schedule would
+    // open on nothing. So today moves to the start of the window. Inside it, today stays where the user put it.
+    const today = asOfDate(p);
+    if (today < rows[0].plan_from || today > rows[0].plan_to) {
+      await q.query("UPDATE project SET as_of_date = $2 WHERE id = $1", [pid, rows[0].plan_from]);
+      todaySet = rows[0].plan_from;
+    }
   });
-  return loadRun(db, pid, id);
+  const run = await loadRun(db, pid, id);
+  return todaySet ? { ...run, todaySet } : run;
 }
 
 /** Discard a preview: staged rows go, the run and its issues stay as a record. */

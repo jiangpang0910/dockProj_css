@@ -1,11 +1,11 @@
 /** Vessels (OP-07). R6: a longer length can't break a confirmed booking. */
-import type { Vessel, VesselInput } from "@shared/contract";
+import type { LengthFilter, Vessel, VesselInput } from "@shared/contract";
 import { getDb } from "../db/pool";
 import { ApiErr, notFound } from "../http/api-error";
 import { normalizeName, toVessel } from "./mappers";
 import { requireProject } from "./projects";
 
-export async function listVessels(pid: string, opts: { q?: string; lengthUnknown?: boolean } = {}): Promise<Vessel[]> {
+export async function listVessels(pid: string, opts: { q?: string; length?: LengthFilter } = {}): Promise<Vessel[]> {
   const db = getDb();
   await requireProject(db, pid);
   const params: unknown[] = [pid];
@@ -14,7 +14,8 @@ export async function listVessels(pid: string, opts: { q?: string; lengthUnknown
     params.push(`%${opts.q.trim().replace(/[\\%_]/g, (c) => "\\" + c)}%`);
     where += ` AND name ILIKE $${params.length}`;
   }
-  if (opts.lengthUnknown) where += " AND length_ft IS NULL";
+  if (opts.length === "unknown") where += " AND length_ft IS NULL";
+  if (opts.length === "known") where += " AND length_ft IS NOT NULL";
   const { rows } = await db.query(`SELECT * FROM vessel WHERE ${where} ORDER BY lower(name)`, params);
   return rows.map(toVessel);
 }

@@ -25,7 +25,8 @@ export const HARD_HORIZON_YEARS = 5;             // manual bookings: endDate > a
 
 // ───────────── projects ─────────────
 // A project is a workspace: its own berths, vessels, bookings, imports and "today". All other endpoints live
-// under /api/projects/:projectId. No auth: the project id is the access key (infrastructure.md §5).
+// under /api/projects/:projectId. Every request carries a session cookie (infrastructure.md §5): a project is
+// visible to the account that created it (its `owner`) and to admins.
 export type ProjectOrigin = "sample" | "defaults" | "empty";
 // sample   = a private copy of the sample template (default fleet + 23 years of imported history)
 // defaults = a private copy of the default fleet (6 berths + 2 sections + 164 vessels), no bookings
@@ -34,6 +35,7 @@ export interface Project {
   id: Id;
   name: string;
   origin: ProjectOrigin;
+  owner: string | null;        // the account that created it; null for templates (and pre-auth projects)
   createdAt: ISODateTime;
   lastOpenedAt: ISODateTime;
   counts: { berths: number; vessels: number; bookings: number };  // bookings = confirmed
@@ -44,25 +46,31 @@ export interface ProjectInput {
   asOfDate?: ISODate | null;   // the planning anchor ("today"). The sample ignores it (it ships 2019-07-01)
 }
 export interface ProjectPatch { name: string; }
-export const MAX_PROJECTS_PER_REQUEST = 50;      // GET /api/projects?ids=… (the ids this browser remembers)
+
+// ───────────── accounts ─────────────
+// Logins are handed out, not signed up for (infrastructure.md §5). A session names the account and its role:
+//   viewer  reads its own projects, every write → 403
+//   editor  reads and writes its own projects
+//   admin   reads and writes every project
+export const ROLES = ["admin", "editor", "viewer"] as const;
+export type Role = (typeof ROLES)[number];
+export interface Session { user: string; role: Role }
 
 // ───────────── reference data ─────────────
-export type BerthKind = "berth" | "section";
-// "berth"   = exclusive: one occupant per day, length is enforced.
-// "section" = shared area (e.g. small-craft slips): overlaps and length are NOT enforced.
+// Every berth is exclusive: one occupant per day (R2). A berth whose length nobody has filled in is still a
+// berth — the FIT check (R3) simply can't run on it, exactly like a vessel with no length on record. The legacy
+// grid has rows like "Small craft slips" with no "- 410'", and they arrive here as length-unknown berths.
 
 export interface Berth {
   id: Id;
   name: string;               // "North Pier West"
-  lengthFt: number | null;    // 410; null for sections
-  kind: BerthKind;
+  lengthFt: number | null;    // 410; null = not on record yet, so nothing booked here can be checked for fit
   active: boolean;            // inactive berths accept no new bookings
   sortOrder: number;          // row order in the schedule grid
 }
 export interface BerthInput {
   name: string;               // unique, case-insensitive
-  kind: BerthKind;
-  lengthFt: number | null;    // required (> 0) for "berth"; must be null for "section"
+  lengthFt: number | null;    // > 0, or null when the file/user doesn't know it
   sortOrder?: number;         // default: after the last berth
 }
 export interface BerthPatch { name?: string; lengthFt?: number | null; active?: boolean; sortOrder?: number; }
@@ -127,6 +135,7 @@ export type ViolationCode =
   | "OVERLAP"                 // another confirmed booking holds the berth on ≥1 of these days
   | "VESSEL_TOO_LONG"         // vessel.lengthFt > berth.lengthFt
   | "VESSEL_LENGTH_UNKNOWN"   // vessel has no length on record
+  | "BERTH_LENGTH_UNKNOWN"    // berth has no length on record — same gap, other side of the comparison
   | "VESSEL_DOUBLE_BERTHED"   // same vessel already booked elsewhere on overlapping days
   | "BERTH_INACTIVE"
   | "IN_PAST"                 // warning only: the whole range is before Settings.asOfDate ("today")
@@ -153,7 +162,8 @@ export interface ScheduleResponse {
 export interface AvailabilityOption {
   berth: Berth;
   free: boolean;                   // no overlap in the window
-  fits: boolean;                   // vessel length <= berth length (true for sections / no length asked)
+  fits: boolean | null;            // vessel ≤ berth; null = unknowable, this berth has no length on record
+                                   // (true when no length was asked about: nothing to check)
   slackFt: number | null;          // berth.lengthFt - vessel length; smaller = tighter fit
   conflicts: { bookingId: Id; title: string; startDate: ISODate; endDate: ISODate }[];
 }
@@ -208,8 +218,13 @@ export interface ImportIssue {
 export interface ImportRun {
   id: Id; filename: string; format: ImportFormat; status: ImportStatus;
   createdAt: ISODateTime; committedAt: ISODateTime | null;
-  // Planning window: only rows touching [from, to] are staged. from = the project's "today" at upload time.
+  // Planning window: only rows touching [from, to] are staged. Without `planTo` the window is read from the file
+  // itself (earliest start → latest end), so a workbook comes in with nothing typed. With `planTo`: from = the
+  // project's "today" at upload time.
   window: { from: ISODate; to: ISODate };
+  // Commit response only: the project's today was outside the window, so it moved to window.from (the schedule
+  // would otherwise open on an empty stretch). The chip at the top moves it again.
+  todaySet?: ISODate;
   counts: {
     sheets: number; cells: number;
     berths: number; vessels: number; bookings: number;   // staged, to add on commit
@@ -330,19 +345,12 @@ export interface ApplyProposalsResult { placed: number; bookingIds: Id[] }
 export interface Settings { asOfDate: ISODate; asOfSource: "system" | "override"; }
 export interface SettingsPatch { asOfDate: ISODate | null; } // null = revert to the real system date
 
-// ───────────── audit ─────────────
-export interface AuditReport {
-  generatedAt: ISODateTime;
-  checkedBookings: number;
-  violations: { bookingId: Id; violations: Violation[] }[];  // expected empty; see backend.md §7
-  summary: Partial<Record<ViolationCode, number>>;
-}
-
 // ───────────── errors ─────────────
 export interface ApiError {
   error: {
     code: "VALIDATION" | "CONFLICT" | "UNPROCESSABLE" | "NOT_FOUND" | "STALE_VERSION"
-        | "FORBIDDEN"      // 403: writing to a read-only template project
+        | "UNAUTHORIZED"   // 401: no (or an expired) session cookie — sign in again
+        | "FORBIDDEN"      // 403: another account's project, a read-only account, or a read-only template
         | "UNAVAILABLE"    // 503: demo is at its project cap (infrastructure.md §5)
         | "INTERNAL";
     message: string;
@@ -382,10 +390,9 @@ export const VesselInputSchema = z.object({
 }) satisfies z.ZodType<VesselInput>;
 export const VesselPatchSchema = VesselInputSchema.partial();
 
-export const BerthInputSchema = z.discriminatedUnion("kind", [
-  z.object({ name: text, kind: z.literal("berth"), lengthFt: feet, sortOrder: z.number().int().optional() }),
-  z.object({ name: text, kind: z.literal("section"), lengthFt: z.null(), sortOrder: z.number().int().optional() }),
-]) satisfies z.ZodType<BerthInput>;
+export const BerthInputSchema = z.object({
+  name: text, lengthFt: feet.nullable(), sortOrder: z.number().int().optional(),
+}) satisfies z.ZodType<BerthInput>;
 export const BerthPatchSchema = z.object({
   name: text.optional(), lengthFt: feet.nullable().optional(), active: z.boolean().optional(), sortOrder: z.number().int().optional(),
 }) satisfies z.ZodType<BerthPatch>;
@@ -396,9 +403,6 @@ export const ProjectInputSchema = z.object({
   asOfDate: isoDate.nullish(),
 }) satisfies z.ZodType<ProjectInput>;
 export const ProjectPatchSchema = z.object({ name: text.max(80) }) satisfies z.ZodType<ProjectPatch>;
-export const ProjectsQuerySchema = z.object({
-  ids: z.string().transform((v) => v.split(",").filter(Boolean)).pipe(z.array(id).max(MAX_PROJECTS_PER_REQUEST)),
-});
 
 export const SettingsPatchSchema = z.object({ asOfDate: isoDate.nullable() }) satisfies z.ZodType<SettingsPatch>;
 
@@ -423,9 +427,10 @@ export const AvailabilityQuerySchema = z.object({
   lengthFt: z.coerce.number().positive().optional(),
 });
 // POST …/imports is multipart: `file` plus these optional text fields. from = project "today" (not a field: set "today" to move it)
-export const ImportFieldsSchema = z.object({ planTo: isoDate.optional() });   // default: from + HARD_HORIZON_YEARS
+export const ImportFieldsSchema = z.object({ planTo: isoDate.optional() });   // absent: the window is read from the file
 
-export const VesselsQuerySchema = z.object({ q: z.string().optional(), lengthUnknown: bool.optional() });
+export type LengthFilter = "known" | "unknown";   // GET /vessels?length=: only vessels with / without a length; absent = all
+export const VesselsQuerySchema = z.object({ q: z.string().optional(), length: z.enum(["known", "unknown"]).optional() });
 export const BerthsQuerySchema = z.object({ includeInactive: bool.optional() });
 const conflictType = z.enum(["OVERLAP", "VESSEL_TOO_LONG", "VESSEL_DOUBLE_BERTHED", "NO_BERTH", "BERTH_INACTIVE"]);
 export const ConflictsQuerySchema = z.object({

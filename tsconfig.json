@@ -39,9 +39,12 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts",
     ".next-real/types/**/*.ts",
-    ".next-real/dev/types/**/*.ts"
+    ".next-real/dev/types/**/*.ts",
+    "/private/tmp/claude-501/-Users-jiangpang-dockProj-css/5ae9e2bc-bc02-4420-bc83-a514b8b4e0a0/scratchpad/next-build/types/**/*.ts",
+    "/private/tmp/claude-501/-Users-jiangpang-dockProj-css/5ae9e2bc-bc02-4420-bc83-a514b8b4e0a0/scratchpad/next-build/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "private"
   ]
 }

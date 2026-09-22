@@ -30,21 +30,23 @@ export async function availability(
     db.query("SELECT * FROM berth WHERE project_id = $1 AND active ORDER BY sort_order, lower(name)", [pid]),
     db.query<{ id: string; berth_id: string; display_title: string; start_date: string; end_date: string }>(
       `SELECT id, berth_id, display_title, start_date, end_date FROM booking_view
-       WHERE project_id = $1 AND status = 'confirmed' AND berth_kind = 'berth'
+       WHERE project_id = $1 AND status = 'confirmed'
          AND period && daterange($2::date, $3::date, '[]') ORDER BY start_date`, [pid, q.startDate, q.endDate]),
   ]);
 
   const options: AvailabilityOption[] = berths.rows.map(toBerth).map((berth) => {
-    const conflicts = berth.kind === "section" ? [] : clashes.rows
+    const conflicts = clashes.rows
       .filter((c) => c.berth_id === berth.id)
       .map((c) => ({ bookingId: c.id, title: c.display_title, startDate: c.start_date, endDate: c.end_date }));
-    const fits = lengthFt == null || berth.kind === "section" || (berth.lengthFt != null && berth.lengthFt >= lengthFt);
+    // Nothing asked about → nothing to check (true). Asked, but this berth has no length on record → unknown.
+    const fits = lengthFt == null ? true : berth.lengthFt == null ? null : berth.lengthFt >= lengthFt;
     const slackFt = lengthFt == null || berth.lengthFt == null ? null : Math.round((berth.lengthFt - lengthFt) * 10) / 10;
     return { berth, free: conflicts.length === 0, fits, slackFt, conflicts };
   });
 
   options.sort((a, b) => {
-    const good = (o: AvailabilityOption) => (o.free && o.fits ? 0 : 1);
+    // proven good, then "free but the fit can't be checked", then the rest
+    const good = (o: AvailabilityOption) => (o.free && o.fits === true ? 0 : o.free && o.fits === null ? 1 : 2);
     if (good(a) !== good(b)) return good(a) - good(b);
     if (a.slackFt !== b.slackFt) {
       if (a.slackFt == null) return 1;

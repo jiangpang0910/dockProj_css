@@ -2,7 +2,7 @@
 // Everything scoped to the open project: its id, its API, and the shared reference data (settings, berths, vessels).
 import { createContext, useContext, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { Berth, Settings, Vessel } from "@shared/contract";
+import type { Berth, LengthFilter, Settings, Vessel } from "@shared/contract";
 import { getProject, inProject, type ProjectApi } from "@/lib/api/endpoints";
 import { qk } from "@/lib/api/keys";
 
@@ -40,11 +40,11 @@ export function useBerths(includeInactive = false) {
   return useQuery<Berth[]>({ queryKey: qk.berths(pid, includeInactive), queryFn: () => api.listBerths(includeInactive), staleTime: 60_000 });
 }
 
-export function useVessels(q?: string, lengthUnknown?: boolean) {
+export function useVessels(q?: string, length?: LengthFilter) {
   const { pid, api } = useProjectCtx();
   return useQuery<Vessel[]>({
-    queryKey: qk.vessels(pid, q, lengthUnknown),
-    queryFn: () => api.listVessels(q, lengthUnknown),
+    queryKey: qk.vessels(pid, q, length),
+    queryFn: () => api.listVessels(q, length),
     staleTime: 60_000,
     placeholderData: (prev) => prev,
   });

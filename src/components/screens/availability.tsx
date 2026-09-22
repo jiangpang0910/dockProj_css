@@ -45,8 +45,9 @@ export function AvailabilityScreen() {
   const ready = isISODate(start) && isISODate(end) && end >= start;
   const res = useQuery({ queryKey: qk.availability(pid, query), queryFn: () => api.availability(query), enabled: ready, placeholderData: (p) => p });
   const opts = res.data?.options ?? [];
-  const good = opts.filter((o) => o.free && o.fits);
-  const bad = opts.filter((o) => !(o.free && o.fits));
+  const good = opts.filter((o) => o.free && o.fits === true);
+  const unsure = opts.filter((o) => o.free && o.fits === null);   // free, but the berth has no length on record
+  const bad = opts.filter((o) => !o.free || o.fits === false);
 
   return (
     <div className="mx-auto max-w-5xl space-y-5 p-3 sm:p-5">
@@ -83,21 +84,36 @@ export function AvailabilityScreen() {
                 className={cn("flex items-center gap-3 rounded-xl border bg-surface p-4", i === 0 && "border-ok/60 shadow-[0_0_0_3px_color-mix(in_oklab,var(--ok)_14%,transparent)]")}>
                 <CheckCircle2 className="size-5 shrink-0 text-ok" />
                 <div className="min-w-0 flex-1">
-                  <p className="font-semibold">{o.berth.name} <span className="num text-sm font-normal text-ink-muted">{o.berth.kind === "section" ? "shared" : ft(o.berth.lengthFt)}</span></p>
-                  <p className="num text-sm text-ok">{o.slackFt != null ? `+${ft(o.slackFt)} spare` : o.berth.kind === "section" ? "shared section, no length limit" : "free"}{i === 0 && o.slackFt != null && " · tightest fit"}</p>
+                  <p className="font-semibold">{o.berth.name} <span className="num text-sm font-normal text-ink-muted">{ft(o.berth.lengthFt)}</span></p>
+                  <p className="num text-sm text-ok">{o.slackFt != null ? `+${ft(o.slackFt)} spare` : "free"}{i === 0 && o.slackFt != null && " · tightest fit"}</p>
                 </div>
                 <Button size="sm" variant="outline" onClick={() => editor.openNew({ berthId: o.berth.id, startDate: start, endDate: end, ...(vesselId ? { occupantType: "vessel", vesselId } : {}) })}>Book</Button>
               </motion.div>
             ))}
           </div>
+          {unsure.length > 0 && (
+            <div className="space-y-2">
+              <h2 className="text-[11px] font-semibold tracking-[0.12em] text-ink-muted uppercase">Free, fit unknown</h2>
+              <ul className="divide-y rounded-xl border bg-surface">
+                {unsure.map((o) => (
+                  <li key={o.berth.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
+                    <span className="w-44 font-medium">{o.berth.name} <span className="num font-normal text-ink-muted">{ft(o.berth.lengthFt)}</span></span>
+                    <span className="inline-flex items-center gap-1 text-ink-muted"><Ruler className="size-3.5" /> No length on record — add it on the Berths page to check fit</span>
+                    <span className="flex-1" />
+                    <Button size="sm" variant="ghost" onClick={() => editor.openNew({ berthId: o.berth.id, startDate: start, endDate: end, ...(vesselId ? { occupantType: "vessel", vesselId } : {}) })}>Book anyway</Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {bad.length > 0 && (
             <div className="space-y-2">
               <h2 className="text-[11px] font-semibold tracking-[0.12em] text-ink-muted uppercase">Won&rsquo;t work</h2>
               <ul className="divide-y rounded-xl border bg-surface opacity-80">
                 {bad.map((o) => (
                   <li key={o.berth.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
-                    <span className="w-44 font-medium">{o.berth.name} <span className="num font-normal text-ink-muted">{o.berth.kind === "section" ? "shared" : ft(o.berth.lengthFt)}</span></span>
-                    {!o.fits && <span className="inline-flex items-center gap-1 text-signal"><Ruler className="size-3.5" /> Too short by <span className="num">{ft(-(o.slackFt ?? 0))}</span></span>}
+                    <span className="w-44 font-medium">{o.berth.name} <span className="num font-normal text-ink-muted">{ft(o.berth.lengthFt)}</span></span>
+                    {o.fits === false && <span className="inline-flex items-center gap-1 text-signal"><Ruler className="size-3.5" /> Too short by <span className="num">{ft(-(o.slackFt ?? 0))}</span></span>}
                     {!o.free && o.conflicts.slice(0, 2).map((c) => (
                       <button key={c.bookingId} type="button" onClick={() => editor.openDetail(c.bookingId)} className="inline-flex items-center gap-1 text-ink-muted hover:text-ink">
                         <OctagonX className="size-3.5 text-signal" /> Held by {c.title} <span className="num">{formatRange(c.startDate, c.endDate)}</span>

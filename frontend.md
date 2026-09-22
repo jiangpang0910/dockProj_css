@@ -96,7 +96,8 @@ One page, three steps, all visible at once (not a multi-page wizard):
    - **Upload a spreadsheet**: "Your own fleet and bookings." → `start:"empty"`, then upload. The card expands to show:
      a **Download the template** link (`/dock-template.xlsx`), a one-line description of its three sheets
      (Berths · Vessels · Bookings), a dropzone, the note *"The original year-per-sheet workbook works too."*, and
-     **Planning until** (default: from + 5 years). Only bookings touching *from → until* are brought in.
+     **Planning until** (optional). Blank: the whole file is brought in, and the project's today moves to the
+     file's first date on commit when it lies outside those years. Set: only bookings touching *from → until* come in.
 3. **Create** → `POST /api/projects`. With a file: then `POST /api/projects/<id>/imports` and go straight to that import's
    preview (3.7 step 2). Otherwise go to `/p/<id>`.
    Remember the id in `localStorage` as soon as the project exists, before the upload, so a failed upload doesn't lose it.
@@ -163,7 +164,7 @@ Filterable table: date range (required), berth, type, text search, include cance
 
 ### 3.5 Vessels (`/vessels`, OP-07)
 
-Table + search; **New vessel** and a delete action per row (confirm dialog; a 409 shows "Used by 12 bookings — can't delete"); filter **"Length unknown"** (legacy vessels — there will be hundreds; make it easy to fill them in one after another with an inline length field). Create/edit form. A 409 on length edit lists the bookings the new length would break.
+Table + search; **New vessel** and a delete action per row (confirm dialog; a 409 shows "Used by 12 bookings — can't delete"); a length filter, **All / Length known / Length unknown** (applied in memory on the one fetched list, as is the search, so clicks are instant; the API also accepts `?length=` for other callers; "unknown" = legacy vessels — there will be hundreds; make it easy to fill them in one after another with an inline length field, "known" = only vessels that can be booked by hand). Create/edit form. A 409 on length edit lists the bookings the new length would break.
 
 ### 3.6 Berths (`/berths`, OP-08)
 
@@ -176,8 +177,11 @@ Edit length/name/order; 409 lists affected bookings. Delete per row with confirm
    (indeterminate; the request takes a few seconds). Beside it: **Download the template** (`/dock-template.xlsx`). The server
    detects the format (template or legacy grid); show `ImportRun.format` as a badge in the preview.
    Above the dropzone: **Planning window**, *from* = the project's today (read-only here, with a link to change it)
-   and *until* (field `planTo`, default from + 5 years). The preview states it plainly: *"1,812 bookings outside
-   27 Apr 2008 – 15 Jan 2009 were skipped"* (`counts.outsideWindow`).
+   and *until* (field `planTo`, optional). Left blank, the server reads the window from the file itself (earliest
+   start → latest end) so nothing in it is skipped, and on commit the project's today moves to the window's start if
+   it was outside it (`ImportRun.todaySet` on the commit response → a toast, and the today chip refreshes). With a
+   date, the preview states it plainly: *"1,812 bookings outside 27 Apr 2008 – 15 Jan 2009 were skipped"*
+   (`counts.outsideWindow`).
 2. **Preview** — the `ImportRun` summary: berths, vessels and bookings to add, issues by severity (error / warning / info). Actions: **Commit** (`POST /commit`, confirm dialog stating the count) and **Discard** (`DELETE`).
 3. **Issues** — tabs by severity, filter by code, cursor-paginated (`GET /issues`). Each issue: code badge, sheet + cell (`2010 · AF44`), message, and the parsed row (occupant, dates, raw berth label).
    Actions on rows that have a `row`: **Create booking** (choose berth — show the availability list inline: `GET …/availability?startDate&endDate&lengthFt=row.vesselLengthFt`; if `vesselLengthFt` is null, ask for it first and send it as `ResolveIssueInput.vesselLengthFt`) or **Dismiss** (optional reason). Resolved issues fade and move to a "Resolved" tab.
@@ -266,7 +270,7 @@ Constants the UI needs: `DATE_MIN`/`DATE_MAX` (date-picker bounds), `HARD_HORIZO
 | POST | `/berths` | `BerthInput` | `Berth` (201) | 409 on duplicate name |
 | PATCH | `/berths/:id` | `BerthPatch` | `Berth` | 409 if the change would invalidate existing bookings |
 | DELETE | `/berths/:id` | – | 204 | 409 if any booking references it → deactivate instead |
-| GET | `/vessels` | `?q=&lengthUnknown=true` | `Vessel[]` | `q` = case-insensitive substring |
+| GET | `/vessels` | `?q=&length=known\|unknown` | `Vessel[]` | `q` = case-insensitive substring; `length` absent = all |
 | POST | `/vessels` | `VesselInput` | `Vessel` (201) | name unique per project (case-insensitive) |
 | PATCH | `/vessels/:id` | `Partial<VesselInput>` | `Vessel` | 409 if a new length breaks a booking |
 | DELETE | `/vessels/:id` | – | 204 | 409 if any booking references it |

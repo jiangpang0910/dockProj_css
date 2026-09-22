@@ -3,7 +3,7 @@
 import {
   DATE_MAX, DATE_MIN, HARD_HORIZON_YEARS, MAX_WINDOW_DAYS,
   CONFLICT_TYPES,
-  type ApiError, type ApplyProposalsInput, type AuditReport, type AvailabilityOption, type Berth, type Booking, type BookingInput,
+  type ApiError, type ApplyProposalsInput, type AvailabilityOption, type Berth, type Booking, type BookingInput,
   type BookingView, type Conflict, type ConflictSummary, type ConflictType, type ImportIssue, type ImportRun, type ISODate,
   type Project, type ProjectOrigin, type Proposal, type ProposalSegment, type Settings, type SolveRequest, type SolveResult,
   type SolveSkipReason, type Vessel, type Violation,
@@ -78,7 +78,7 @@ function rulesResponse(violations: Violation[]): Response | null {
 }
 
 function createProjectWorld(name: string, start: ProjectOrigin, asOfDate?: ISODate | null): MockProject {
-  const meta = { id: newId(), name, origin: start, createdAt: nowTs(), lastOpenedAt: nowTs() };
+  const meta = { id: newId(), name, origin: start, owner: "mock", createdAt: nowTs(), lastOpenedAt: nowTs() };
   if (start === "sample") {
     const s = sampleProject();
     const p: MockProject = { meta, asOfDate: s.asOfDate, berths: s.berths, vessels: s.vessels, bookings: s.bookings, imports: [] };
@@ -105,7 +105,7 @@ function conflictOut(p: MockProject, c: Conflict): Conflict {
   const berth = p.berths.find((b) => b.id === c.berthId);
   const vessel = p.vessels.find((v) => v.id === c.vesselId);
   const hits = c.status !== "open" ? [] : p.bookings.filter((b) => b.status === "confirmed" && b.startDate <= c.endDate && b.endDate >= c.startDate &&
-    ((c.type === "OVERLAP" && b.berthId === c.berthId && berth?.kind === "berth") || (c.type === "VESSEL_DOUBLE_BERTHED" && b.vesselId === c.vesselId)));
+    ((c.type === "OVERLAP" && b.berthId === c.berthId) || (c.type === "VESSEL_DOUBLE_BERTHED" && b.vesselId === c.vesselId)));
   return {
     ...c, berthName: berth?.name ?? c.berthName, berthLengthFt: berth?.lengthFt ?? null, vesselLengthFt: vessel?.lengthFt ?? null,
     blockers: hits.map((b) => { const v = view(p, b); return { bookingId: b.id, title: v.title, berthName: v.berthName, startDate: b.startDate, endDate: b.endDate }; }),
@@ -114,11 +114,11 @@ function conflictOut(p: MockProject, c: Conflict): Conflict {
 /** The sample ships with a season's worth of rows the legacy workbook couldn't place. */
 function sampleConflicts(p: MockProject): StagedConflict[] {
   const out: StagedConflict[] = [];
-  const exclusive = sortedBerths(p).filter((b) => b.kind === "berth");
-  const shortest = [...exclusive].sort((a, b) => (a.lengthFt ?? 0) - (b.lengthFt ?? 0))[0];
+  const measured = sortedBerths(p).filter((b) => b.lengthFt != null);
+  const shortest = [...measured].sort((a, b) => (a.lengthFt ?? 0) - (b.lengthFt ?? 0))[0];
   const long = p.vessels.filter((v) => (v.lengthFt ?? 0) > (shortest?.lengthFt ?? Infinity)).slice(0, 4);
   const known = p.vessels.filter((v) => v.lengthFt != null);
-  const booked = p.bookings.filter((b) => b.vesselId && exclusive.some((e) => e.id === b.berthId)).slice(0, 60);
+  const booked = p.bookings.filter((b) => b.vesselId && measured.some((e) => e.id === b.berthId)).slice(0, 60);
   booked.filter((_, i) => i % 6 === 0).forEach((b, i) => {
     const other = known[(i * 7 + 3) % known.length];
     const berth = p.berths.find((x) => x.id === b.berthId)!;
@@ -131,7 +131,7 @@ function sampleConflicts(p: MockProject): StagedConflict[] {
     message: `${v.name} (${v.lengthFt}′) is ${(v.lengthFt ?? 0) - (shortest.lengthFt ?? 0)}′ too long for ${shortest.name} (${shortest.lengthFt}′).` }));
   booked.filter((_, i) => i % 11 === 5).forEach((b, i) => {
     const v = p.vessels.find((x) => x.id === b.vesselId)!;
-    const elsewhere = exclusive.find((e) => e.id !== b.berthId && (e.lengthFt ?? 0) >= (v.lengthFt ?? 0)) ?? exclusive[0];
+    const elsewhere = measured.find((e) => e.id !== b.berthId && (e.lengthFt ?? 0) >= (v.lengthFt ?? 0)) ?? measured[0];
     out.push({ type: "VESSEL_DOUBLE_BERTHED", occupantType: "vessel", title: v.name, berthName: elsewhere.name, vesselLengthFt: v.lengthFt,
       startDate: b.startDate, endDate: b.endDate, sheet: "2019", cell: `T${30 + i}`, message: `${v.name} is already at another berth on these days.` });
   });
@@ -151,7 +151,7 @@ function fakeImport(p: MockProject, file: File | null, planTo?: string): MockImp
   const format = /template/i.test(filename) ? "template" : "legacy_grid";
   const id = newId();
   if (!p.berths.length) p.berths = defaultBerths();   // a legacy grid creates berths from its labels
-  const berths = sortedBerths(p).filter((b) => b.kind === "berth");
+  const berths = sortedBerths(p);
   const d = (n: number) => addDays(from, n);
   const staged: StagedRow[] = [];
   const vesselNames = ["R/V Northern Meridian", "F/V Swift Dory", "S/V Iron Petrel", "M/V Swift Petrel", "Tug Western Current"];
@@ -229,7 +229,7 @@ function solveGreedy(p: MockProject, req: SolveRequest): SolveResult {
   const taken = p.bookings.filter((b) => b.status === "confirmed").map((b) => ({ berthId: b.berthId, vesselId: b.vesselId, s: b.startDate, e: b.endDate }));
   const berthFree = (id: string, s: ISODate, e: ISODate) => !taken.some((t) => t.berthId === id && overlaps(t.s, t.e, s, e));
   const vesselFree = (id: string | null, s: ISODate, e: ISODate) => !id || !taken.some((t) => t.vesselId === id && overlaps(t.s, t.e, s, e));
-  const berths = sortedBerths(p).filter((b) => b.active && b.kind === "berth" && b.lengthFt != null);
+  const berths = sortedBerths(p).filter((b) => b.active && b.lengthFt != null);
 
   const weight = (off: number) => (off > 0 ? off * o.weights.delay : -off * o.weights.early);
   const offsets = [0, ...Array.from({ length: o.maxDelayDays }, (_, i) => i + 1), ...Array.from({ length: o.maxEarlyDays }, (_, i) => -(i + 1))]
@@ -331,8 +331,7 @@ export async function mockFetch(url: string, init: RequestInit): Promise<Respons
   // /projects
   if (seg.length === 1) {
     if (method === "GET") {
-      const ids = (q.get("ids") ?? "").split(",").filter(Boolean);
-      return json(200, ids.map((id) => w.projects[id]).filter(Boolean).map(projectOut));
+      return json(200, Object.values(w.projects).sort((a, b) => b.meta.lastOpenedAt.localeCompare(a.meta.lastOpenedAt)).map(projectOut));
     }
     if (method === "POST") {
       const b = body() as { name?: string; start?: ProjectOrigin; asOfDate?: ISODate | null };
@@ -342,6 +341,14 @@ export async function mockFetch(url: string, init: RequestInit): Promise<Respons
       w.projects[p.meta.id] = p; save();
       return json(201, projectOut(p));
     }
+  }
+  // /projects/sample — the one sample copy for this login (mock: for this browser)
+  if (seg.length === 2 && seg[1] === "sample" && method === "POST") {
+    const existing = Object.values(w.projects).find((x) => x.meta.origin === "sample");
+    if (existing) { existing.meta.lastOpenedAt = nowTs(); save(); return json(200, projectOut(existing)); }
+    const p = createProjectWorld("Sample — WHOI dock", "sample", null);
+    w.projects[p.meta.id] = p; save();
+    return json(201, projectOut(p));
   }
   const p = w.projects[seg[1]];
   if (!p) return fail(404, "NOT_FOUND", "This project no longer exists (projects are removed after 14 idle days).");
@@ -370,12 +377,12 @@ export async function mockFetch(url: string, init: RequestInit): Promise<Respons
     if (res === "berths") {
       if (!id && method === "GET") return json(200, sortedBerths(p).filter((b) => q.get("includeInactive") === "true" || b.active));
       if (!id && method === "POST") {
-        const b = body() as { name?: string; kind?: Berth["kind"]; lengthFt?: number | null; sortOrder?: number };
+        const b = body() as { name?: string; lengthFt?: number | null; sortOrder?: number };
         const name = normName(String(b.name ?? ""));
-        if (!name || !b.kind) return fail(400, "VALIDATION", "Name and kind are required.");
-        if (b.kind === "berth" && !(Number(b.lengthFt) > 0)) return fail(400, "VALIDATION", "A berth needs a length in feet.");
+        if (!name) return fail(400, "VALIDATION", "Name is required.");
+        if (b.lengthFt != null && !(Number(b.lengthFt) > 0)) return fail(400, "VALIDATION", "A length must be a number of feet above zero.");
         if (p.berths.some((x) => x.name.toLowerCase() === name.toLowerCase())) return fail(409, "CONFLICT", `A berth called “${name}” already exists.`);
-        const berth: Berth = { id: newId(), name, kind: b.kind, lengthFt: b.kind === "berth" ? Number(b.lengthFt) : null, active: true,
+        const berth: Berth = { id: newId(), name, lengthFt: b.lengthFt == null ? null : Number(b.lengthFt), active: true,
                                sortOrder: b.sortOrder ?? Math.max(0, ...p.berths.map((x) => x.sortOrder)) + 1 };
         p.berths.push(berth); save(); return json(201, berth);
       }
@@ -388,7 +395,7 @@ export async function mockFetch(url: string, init: RequestInit): Promise<Respons
           if (p.berths.some((x) => x.id !== berth.id && x.name.toLowerCase() === name.toLowerCase())) return fail(409, "CONFLICT", `A berth called “${name}” already exists.`);
           berth.name = name;
         }
-        if (b.lengthFt !== undefined && berth.kind === "berth" && b.lengthFt !== berth.lengthFt) {
+        if (b.lengthFt != null && b.lengthFt !== berth.lengthFt) {
           const newLen = Number(b.lengthFt);
           const broken = p.bookings.filter((x) => x.berthId === berth.id && x.status === "confirmed" && x.vesselId &&
             (p.vessels.find((v) => v.id === x.vesselId)?.lengthFt ?? 0) > newLen);
@@ -411,7 +418,9 @@ export async function mockFetch(url: string, init: RequestInit): Promise<Respons
     if (res === "vessels") {
       if (!id && method === "GET") {
         const term = (q.get("q") ?? "").toLowerCase();
-        return json(200, p.vessels.filter((v) => (!term || v.name.toLowerCase().includes(term)) && (q.get("lengthUnknown") !== "true" || v.lengthFt == null))
+        const length = q.get("length");
+        return json(200, p.vessels.filter((v) => (!term || v.name.toLowerCase().includes(term))
+            && (length !== "unknown" || v.lengthFt == null) && (length !== "known" || v.lengthFt != null))
           .sort((a, b) => a.name.localeCompare(b.name)));
       }
       if (!id && method === "POST") {
@@ -528,15 +537,14 @@ export async function mockFetch(url: string, init: RequestInit): Promise<Respons
         lengthFt = v.lengthFt ?? lengthFt;
       }
       const options: AvailabilityOption[] = sortedBerths(p).filter((b) => b.active).map((berth) => {
-        const conflicts = berth.kind === "berth"
-          ? p.bookings.filter((b) => b.berthId === berth.id && b.status === "confirmed" && b.startDate <= e && s <= b.endDate)
-              .map((b) => ({ bookingId: b.id, title: view(p, b).title, startDate: b.startDate, endDate: b.endDate }))
-          : [];
-        const fits = lengthFt == null || berth.kind === "section" || (berth.lengthFt ?? 0) >= lengthFt;
+        const conflicts = p.bookings.filter((b) => b.berthId === berth.id && b.status === "confirmed" && b.startDate <= e && s <= b.endDate)
+          .map((b) => ({ bookingId: b.id, title: view(p, b).title, startDate: b.startDate, endDate: b.endDate }));
+        const fits = lengthFt == null ? true : berth.lengthFt == null ? null : berth.lengthFt >= lengthFt;
         const slackFt = lengthFt != null && berth.lengthFt != null ? berth.lengthFt - lengthFt : null;
-        return { berth, free: berth.kind === "section" || conflicts.length === 0, fits, slackFt, conflicts };
+        return { berth, free: conflicts.length === 0, fits, slackFt, conflicts };
       }).sort((a, b) => {
-        const ga = a.free && a.fits ? 0 : 1, gb = b.free && b.fits ? 0 : 1;
+        const rank = (o: AvailabilityOption) => (o.free && o.fits === true ? 0 : o.free && o.fits === null ? 1 : 2);
+        const ga = rank(a), gb = rank(b);
         if (ga !== gb) return ga - gb;
         if (a.slackFt == null && b.slackFt != null) return 1;
         if (b.slackFt == null && a.slackFt != null) return -1;
@@ -698,18 +706,6 @@ export async function mockFetch(url: string, init: RequestInit): Promise<Respons
       }
     }
 
-    // audit
-    if (res === "audit" && method === "GET") {
-      const confirmed = p.bookings.filter((b) => b.status === "confirmed");
-      const violations: AuditReport["violations"] = [];
-      const summary: AuditReport["summary"] = {};
-      for (const b of confirmed) {
-        const vs = validate({ berthId: b.berthId, occupantType: b.occupantType, vesselId: b.vesselId, title: b.title, startDate: b.startDate, endDate: b.endDate },
-          p, { source: "import", asOfDate: settings.asOfDate, excludeId: b.id }).filter((v) => v.severity === "error" && v.code !== "BERTH_INACTIVE");
-        if (vs.length) { violations.push({ bookingId: b.id, violations: vs }); for (const v of vs) summary[v.code] = (summary[v.code] ?? 0) + 1; }
-      }
-      return json(200, { generatedAt: nowTs(), checkedBookings: confirmed.length, violations, summary } satisfies AuditReport);
-    }
   } catch (e) {
     if (e instanceof UnknownEntity) return fail(404, "NOT_FOUND", e.message);
     throw e;
