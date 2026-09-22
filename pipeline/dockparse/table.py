@@ -16,21 +16,24 @@ import re
 from openpyxl.cell.cell import MergedCell
 from openpyxl.utils import get_column_letter
 
+from . import embed
 from .classify import VESSEL_RE, classify, clean, vessel_display, vessel_key
 from .grid import SECTION_RE
 from .values import (berth_label, date_orders, feet, order_for, parse_date, parse_range, split_name_length)
 
 FIELDS = {
     "berth": {"berth", "dock", "pier", "slip", "quay", "wharf", "where", "location", "mooring", "position", "place",
-              "berth name", "dock name", "pier name", "berth / dock", "berthed at", "alongside"},
+              "berth name", "dock name", "pier name", "berth / dock", "berthed at", "alongside", "moored at", "moored",
+              "lying at", "tied up at", "jetty", "pontoon", "landing"},
     "vessel": {"vessel", "ship", "boat", "craft", "name", "hull", "vessel / title", "vessel/title", "title",
                "occupant", "vessel name", "boat name", "ship name", "who", "vessel (loa)", "yacht", "visitor"},
     "type": {"type", "kind", "category", "booking type", "occupant type", "use"},
     "start": {"start", "from", "in", "arrive", "arrival", "arrives", "arriving", "eta", "begin", "begins", "date in",
-              "check in", "start date", "arrival date", "date from", "from date", "commence", "on", "arr", "in date"},
+              "check in", "start date", "arrival date", "date from", "from date", "commence", "on", "arr", "in date",
+              "arrived", "came in", "docked", "came alongside"},
     "end": {"end", "to", "out", "depart", "departure", "departs", "departing", "etd", "finish", "until", "till",
             "date out", "check out", "end date", "departure date", "date to", "to date", "leave", "leaves", "dep",
-            "out date", "off"},
+            "out date", "off", "cast off", "sailed", "sails", "left", "let go"},
     "dates": {"dates", "date", "period", "when", "range", "stay", "date range", "duration", "booking dates", "days"},
     "notes": {"notes", "note", "remarks", "remark", "comments", "comment", "memo", "description", "details", "status"},
     "length": {"length", "loa", "length (ft)", "ft", "feet", "size", "length ft", "loa (ft)", "l.o.a.", "len",
@@ -40,6 +43,7 @@ FIELDS = {
     "order": {"order", "sort", "sort order", "#", "no", "no.", "seq"},
 }
 _WORD_FIELDS = {w: f for f, ws in FIELDS.items() for w in ws if " " not in w and len(w) > 1}
+TYPED_FIELDS = {"start", "end", "dates", "length", "draft", "order", "type"}   # their values have a recognisable shape
 BERTH_WORDS = re.compile(r"\b(pier|float|slip|slips|dock|channel|wharf|quay|basin|berth|jetty|pontoon|finger|marina)\b", re.I)
 TYPE_WORDS = {"vessel": "vessel", "boat": "vessel", "ship": "vessel", "event": "event", "closure": "closure",
               "closed": "closure", "maintenance": "closure", "repair": "closure", "block": "closure"}
@@ -60,10 +64,11 @@ def _norm_header(v):
     return s, clean(bare)
 
 
-def header_scores(v):
-    """One header cell → {field: score}. Exact synonym 1.0; a known word inside it 0.7."""
+def header_match(v):
+    """One header cell → ({field: score}, by_meaning). Exact synonym 1.0; a known word inside it 0.7; otherwise the
+    local embedding model (embed.py) rates the wording against every synonym: 0.4–0.8, never above a real synonym."""
     if not isinstance(v, str) or not v.strip():
-        return {}
+        return {}, False
     s, bare = _norm_header(v)
     out = {}
     for f, syn in FIELDS.items():
@@ -74,7 +79,14 @@ def header_scores(v):
             f = _WORD_FIELDS.get(w) or _WORD_FIELDS.get(w.rstrip("s"))
             if f:
                 out[f] = max(out.get(f, 0), 0.7)
-    return out
+    if out:
+        return out, False
+    sem = embed.semantic(bare or s, FIELDS)
+    return {f: min(0.8, 0.5 + (c - embed.MIN_COSINE) * 1.5) for f, c in sem.items()}, bool(sem)
+
+
+def header_scores(v):
+    return header_match(v)[0]
 
 
 def value_scores(values, known_berths, known_vessels):
@@ -123,7 +135,10 @@ def map_columns(headers, columns, known_berths, known_vessels):
         vs = value_scores([v for v in vals if not _blank(v)], known_berths, known_vessels)
         for f in FIELDS:
             h, v = hs.get(f, 0), vs.get(f, 0)
-            scores[(c, f)] = 0.6 * h + 0.4 * v if hs else 0.9 * v
+            if f in TYPED_FIELDS and v == 0 and h < 1.0:
+                continue                             # a column with no dates in it isn't a date column, whatever its header hints
+            # the header names the field; values decide among header candidates, or on their own when it names none
+            scores[(c, f)] = 0.6 * h + 0.4 * v if h else 0.2 * v if hs else 0.9 * v
     taken_c, taken_f, mapping, total = set(), set(), {}, {}
     for (c, f), s in sorted(scores.items(), key=lambda kv: -kv[1]):
         if s < MIN_COLUMN_SCORE or c in taken_c or f in taken_f:
@@ -221,7 +236,11 @@ class Sheet:
         return f"{get_column_letter(c)}{r}" if c else None
 
     def describe(self):
-        return ", ".join(f"{get_column_letter(c)} ({self.headers.get(c) or 'no header'}) → {f}"
+        def how(c):
+            h = self.headers.get(c)
+            scores, by_meaning = header_match(h)
+            return " [by meaning]" if by_meaning and self.mapping[c] in scores else " [by its values]" if not scores else ""
+        return ", ".join(f"{get_column_letter(c)} ({self.headers.get(c) or 'no header'}) → {f}{how(c)}"
                          for c, f in sorted(self.mapping.items()))
 
 

@@ -16,7 +16,7 @@ import openpyxl
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "pipeline"))
 import dockparse  # noqa: E402
-from dockparse import model  # noqa: E402
+from dockparse import embed, model  # noqa: E402
 from dockparse.audit import audit  # noqa: E402
 from dockparse.classify import vessel_key  # noqa: E402
 from dockparse.table import find_header, header_scores, map_columns  # noqa: E402
@@ -200,6 +200,35 @@ class TableReader(unittest.TestCase):
         d = dockparse.run(xlsx(build), use_model=False)
         self.assertEqual([r["startDate"] for r in d["rows"]], ["2027-05-03", "2027-05-14"])
         self.assertNotIn("AMBIGUOUS_VALUE", {i["code"] for i in d["issues"]})
+
+    @unittest.skipUnless(embed.available(), "models/minilm not present")
+    def test_headers_matched_by_meaning_with_the_local_model(self):
+        def build(wb):
+            ws = wb.create_sheet("Log")
+            ws.append(["Watercraft", "Tied up", "Came alongside", "Departed", "Skipper"])   # none is a synonym we list
+            ws.append(["1042", "7", dt.date(2027, 3, 1), dt.date(2027, 3, 2), "Sam"])       # hull and berth NUMBERS
+            ws.append(["1043", "9", dt.date(2027, 3, 3), dt.date(2027, 3, 4), "Alex"])
+            ws.append(["1044", "7", dt.date(2027, 3, 5), dt.date(2027, 3, 6), "Kim"])
+        d = dockparse.run(xlsx(build), use_model=False)
+        self.assertEqual(d["format"], "table")
+        self.assertEqual([(r["title"], r["berthLabel"], r["startDate"], r["endDate"]) for r in d["rows"]],
+                         [("1042", "7", "2027-03-01", "2027-03-02"), ("1043", "9", "2027-03-03", "2027-03-04"), ("1044", "7", "2027-03-05", "2027-03-06")])
+        mapping = next(i["message"] for i in d["issues"] if i["code"] == "COLUMN_MAPPING")
+        self.assertIn("A (Watercraft) → vessel [by meaning]", mapping)
+        self.assertIn("B (Tied up) → berth [by meaning]", mapping)
+        self.assertNotIn("Skipper", mapping)                                   # a person: decoy wins, column left out
+        self.assertEqual([i["message"][:24] for i in d["issues"] if i["code"] == "UNMAPPED_COLUMN"], ['Column E ("Skipper", 3 c'])
+
+    def test_without_the_model_nothing_changes(self):
+        with mock.patch.object(embed, "available", return_value=False):
+            self.assertEqual(header_scores("Watercraft"), {})
+            self.assertEqual(header_scores("Boat"), {"vessel": 1.0})
+
+    def test_a_column_without_dates_is_never_a_date_column(self):
+        headers = {1: "Boat", 2: "Departed"}                                    # "Departed" hints end, but the values are names
+        cols = {1: ["R/V A", "R/V B", "R/V C"], 2: ["Sam", "Alex", "Kim"]}
+        mapping, _ = map_columns(headers, cols, set(), set())
+        self.assertEqual(mapping, {1: "vessel"})
 
     def test_model_proposes_a_layout_only_when_nothing_matched(self):
         def build(wb):
