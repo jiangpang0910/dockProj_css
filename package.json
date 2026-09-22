@@ -12,7 +12,8 @@
     "test:db": "node db/schema.test.mjs",
     "db:migrate": "tsx db/migrate.ts",
     "db:seed": "tsx db/seed.ts",
-    "template:build": "tsx scripts/build-template.ts"
+    "template:build": "tsx scripts/build-template.ts",
+    "cpsat": "tsx --env-file=.env.local cpsat/server.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

@@ -20,6 +20,9 @@ Model (days are integers; a stay [s, e] inclusive is the interval [s, e + 1)):
         3. min  Σ (berth length − vessel length) · days          (foot-days; events count 0)
         4. min  days not on the berth the file asked for
 It only proposes. Nothing is written until the user applies proposals through the normal booking rules.
+
+`solve(inp, watch)` takes an optional watcher (see `Watch`) that sees every stage, solution and log line and can
+stop the search. Only the live monitor (cpsat/) passes one; production runs unwatched.
 """
 import datetime as dt
 import time
@@ -29,6 +32,26 @@ from ortools.sat.python import cp_model
 VERSION = 1
 SCALE = 10  # lengths in tenths of a foot, so 42.5′ stays exact
 STAGE_SHARE = (0.4, 0.3, 0.2, 1.0)  # of the time left when each stage starts; the last gets the rest
+STAGES = ("placed", "cost", "slack", "offRequested")  # the lexicographic order below; cpsat/ labels them
+
+
+class Watch:
+    """Does nothing. The monitor subclasses it.
+
+    stage_seconds  None: stages share options.timeLimitSec (production). A number: every stage gets that long.
+    stop_all       set True to skip the stages not started yet (the running one is stopped with stop_search()).
+    """
+    stage_seconds = None
+    stop_all = False
+
+    def stage_start(self, k: int, maximize: bool, solver: cp_model.CpSolver):
+        pass
+
+    def callback(self, k: int):
+        return None  # a CpSolverSolutionCallback, or None
+
+    def stage_end(self, k: int, status: int, solver: cp_model.CpSolver):
+        pass
 
 
 def _d(s: str) -> dt.date:
@@ -39,8 +62,9 @@ def _tenths(ft):
     return None if ft is None else round(ft * SCALE)
 
 
-def solve(inp: dict) -> dict:
+def solve(inp: dict, watch: Watch | None = None) -> dict:
     t0 = time.monotonic()
+    watch = watch or Watch()
     o = inp["options"]
     E, L, M, MIN_SEG = o["maxEarlyDays"], o["maxDelayDays"], o["maxMoves"], o["minSegmentDays"]
     w = o["weights"]
@@ -160,16 +184,24 @@ def solve(inp: dict) -> dict:
     solver = cp_model.CpSolver()
     solver.parameters.num_workers = 8
     all_optimal, have = True, False
-    for (expr, maximize), share in zip(stages, STAGE_SHARE):
+    for k, ((expr, maximize), share) in enumerate(zip(stages, STAGE_SHARE)):
         if isinstance(expr, int):  # nothing to optimise at this stage (e.g. only events: no slack)
             continue
-        left = deadline - time.monotonic()
-        if have and left <= 0.05:
+        if have and watch.stop_all:
             all_optimal = False
             break
+        if watch.stage_seconds is None:
+            left = deadline - time.monotonic()
+            if have and left <= 0.05:
+                all_optimal = False
+                break
+            solver.parameters.max_time_in_seconds = max(left * share, 0.2)
+        else:
+            solver.parameters.max_time_in_seconds = watch.stage_seconds
         (m.maximize if maximize else m.minimize)(expr)
-        solver.parameters.max_time_in_seconds = max(left * share, 0.2)
-        st = solver.solve(m)
+        watch.stage_start(k, maximize, solver)
+        st = solver.solve(m, watch.callback(k))
+        watch.stage_end(k, st, solver)
         if st not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             if not have:
                 return _result("NO_SOLUTION", o, inp, [], unplaced + [

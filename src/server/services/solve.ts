@@ -26,6 +26,23 @@ interface ClaimRow {
 }
 
 export async function solveConflicts(pid: string, req: SolveRequest): Promise<SolveResult> {
+  const { options, input, notOpen } = await buildSolverInput(pid, req);
+  const result: SolveResult = input ? await runSolver(input) : {
+    status: "OPTIMAL", options, proposals: [], unplaced: [],
+    stats: { selected: 0, considered: 0, placed: 0, unplaced: 0, moves: 0, delayDays: 0, slackFootDays: 0, solveMs: 0 },
+  };
+  result.unplaced.push(...notOpen);
+  result.stats.selected += notOpen.length;
+  result.stats.unplaced += notOpen.length;
+  return result;
+}
+
+/**
+ * The selected open conflicts + the fixed world around them, as the solver's input (null: nothing open to solve),
+ * and the selected ones that are not open. Read-only. Also used by the live monitor (cpsat/).
+ */
+export async function buildSolverInput(pid: string, req: SolveRequest):
+  Promise<{ options: SolveResult["options"]; input: SolverInput | null; notOpen: SolveResult["unplaced"] }> {
   const q = getDb();
   await requireProject(q, pid);
   const options: SolveResult["options"] = {
@@ -51,43 +68,35 @@ export async function solveConflicts(pid: string, req: SolveRequest): Promise<So
     ...(all ? [] : req.conflictIds as string[]).filter((id) => !found.has(id)).map((id) => ({
       conflictId: id, title: "", reason: "NOT_OPEN" as const, detail: "Not found in this project." })),
   ];
+  if (!open.length) return { options, input: null, notOpen };
 
-  let result: SolveResult;
-  if (!open.length) {
-    result = { status: "OPTIMAL", options, proposals: [], unplaced: [],
-      stats: { selected: 0, considered: 0, placed: 0, unplaced: 0, moves: 0, delayDays: 0, slackFootDays: 0, solveMs: 0 } };
-  } else {
-    // The fixed world only matters inside the widest window any selected claim could move to.
-    const from = addDays(open.reduce((m, r) => (r.start_date < m ? r.start_date : m), open[0].start_date), -options.maxEarlyDays);
-    const to = addDays(open.reduce((m, r) => (r.end_date > m ? r.end_date : m), open[0].end_date), options.maxDelayDays);
-    const vesselIds = [...new Set(open.map((r) => r.vessel_id).filter((v): v is string => !!v))];
-    const [berths, berthBusy, vesselBusy] = await Promise.all([
-      q.query<{ id: string; name: string; length_ft: number | null }>(
-        "SELECT id, name, length_ft FROM berth WHERE project_id = $1 AND active AND kind = 'berth' ORDER BY sort_order, lower(name)", [pid]),
-      q.query<{ berth_id: string; start_date: string; end_date: string }>(
-        `SELECT berth_id, start_date, end_date FROM booking_view
-         WHERE project_id = $1 AND status = 'confirmed' AND berth_kind = 'berth' AND start_date <= $3 AND end_date >= $2`,
-        [pid, from, to]),
-      q.query<{ vessel_id: string; start_date: string; end_date: string }>(
-        `SELECT vessel_id, start_date, end_date FROM booking_view
-         WHERE project_id = $1 AND status = 'confirmed' AND vessel_id = ANY($2::uuid[]) AND start_date <= $4 AND end_date >= $3`,
-        [pid, vesselIds, from, to]),
-    ]);
-    result = await runSolver({
-      options,
-      berths: berths.rows.map((b) => ({ id: b.id, name: b.name, lengthFt: b.length_ft })),
-      conflicts: open.map((r) => ({
-        id: r.id, title: r.title, occupantType: r.occupant_type, vesselId: r.vessel_id, vesselLengthFt: r.vessel_length_ft,
-        berthId: r.berth_id, berthName: r.berth_name, startDate: r.start_date, endDate: r.end_date,
-      })),
-      berthBusy: berthBusy.rows.map((b) => ({ berthId: b.berth_id, startDate: b.start_date, endDate: b.end_date })),
-      vesselBusy: vesselBusy.rows.map((b) => ({ vesselId: b.vessel_id, startDate: b.start_date, endDate: b.end_date })),
-    });
-  }
-  result.unplaced.push(...notOpen);
-  result.stats.selected += notOpen.length;
-  result.stats.unplaced += notOpen.length;
-  return result;
+  // The fixed world only matters inside the widest window any selected claim could move to.
+  const from = addDays(open.reduce((m, r) => (r.start_date < m ? r.start_date : m), open[0].start_date), -options.maxEarlyDays);
+  const to = addDays(open.reduce((m, r) => (r.end_date > m ? r.end_date : m), open[0].end_date), options.maxDelayDays);
+  const vesselIds = [...new Set(open.map((r) => r.vessel_id).filter((v): v is string => !!v))];
+  const [berths, berthBusy, vesselBusy] = await Promise.all([
+    q.query<{ id: string; name: string; length_ft: number | null }>(
+      "SELECT id, name, length_ft FROM berth WHERE project_id = $1 AND active AND kind = 'berth' ORDER BY sort_order, lower(name)", [pid]),
+    q.query<{ berth_id: string; start_date: string; end_date: string }>(
+      `SELECT berth_id, start_date, end_date FROM booking_view
+       WHERE project_id = $1 AND status = 'confirmed' AND berth_kind = 'berth' AND start_date <= $3 AND end_date >= $2`,
+      [pid, from, to]),
+    q.query<{ vessel_id: string; start_date: string; end_date: string }>(
+      `SELECT vessel_id, start_date, end_date FROM booking_view
+       WHERE project_id = $1 AND status = 'confirmed' AND vessel_id = ANY($2::uuid[]) AND start_date <= $4 AND end_date >= $3`,
+      [pid, vesselIds, from, to]),
+  ]);
+  const input: SolverInput = {
+    options,
+    berths: berths.rows.map((b) => ({ id: b.id, name: b.name, lengthFt: b.length_ft })),
+    conflicts: open.map((r) => ({
+      id: r.id, title: r.title, occupantType: r.occupant_type, vesselId: r.vessel_id, vesselLengthFt: r.vessel_length_ft,
+      berthId: r.berth_id, berthName: r.berth_name, startDate: r.start_date, endDate: r.end_date,
+    })),
+    berthBusy: berthBusy.rows.map((b) => ({ berthId: b.berth_id, startDate: b.start_date, endDate: b.end_date })),
+    vesselBusy: vesselBusy.rows.map((b) => ({ vesselId: b.vessel_id, startDate: b.start_date, endDate: b.end_date })),
+  };
+  return { options, input, notOpen };
 }
 
 /**

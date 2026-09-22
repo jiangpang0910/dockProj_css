@@ -47,3 +47,10 @@ __pycache__/
 .venv/
 .pytest_cache/
 .neon
+
+# cpsat monitor runs and their text logs
+/cpsat/runs/
+/cpsat/logs/
+
+# test run logs
+/logs/

@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CP-SAT monitor</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><span class="dot"></span> CP-SAT monitor <span class="muted">· auto-resolve solver</span></div>
+    <div class="run-state">
+      <span id="state-pill" class="pill idle">idle</span>
+      <span id="clock" class="mono muted"></span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="side">
+      <section class="panel">
+        <h2>Input</h2>
+        <label>Project <span class="muted">(open conflicts)</span>
+          <select id="project"></select>
+        </label>
+        <details class="sub">
+          <summary>…or load a SolverInput JSON file</summary>
+          <input type="file" id="file" accept=".json,application/json">
+          <p id="file-note" class="muted small"></p>
+        </details>
+      </section>
+
+      <section class="panel">
+        <h2>Solver options</h2>
+        <div class="grid2">
+          <label>Max delay days <input type="number" id="maxDelayDays" min="0" max="60"></label>
+          <label>Max early days <input type="number" id="maxEarlyDays" min="0" max="60"></label>
+          <label>Max moves <input type="number" id="maxMoves" min="0" max="5"></label>
+          <label>Min segment days <input type="number" id="minSegmentDays" min="1" max="30"></label>
+          <label>Weight: delay <input type="number" id="w-delay" min="0" step="0.5"></label>
+          <label>Weight: early <input type="number" id="w-early" min="0" step="0.5"></label>
+          <label>Weight: move <input type="number" id="w-move" min="0" step="0.5"></label>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Watch budget</h2>
+        <label>Max seconds per stage
+          <input type="number" id="stageSeconds" min="1" max="3600" value="60">
+        </label>
+        <p class="muted small">Each of the 4 stages runs until it proves its answer is optimal or hits this cap, or
+          you stop it. Give it more time than you'd ever use in production, so you can see where improvement stops.</p>
+        <button id="start" class="primary">Start run</button>
+        <p id="start-err" class="err small"></p>
+      </section>
+
+      <section class="panel">
+        <h2>Past runs</h2>
+        <ul id="runs" class="runs"></ul>
+      </section>
+    </aside>
+
+    <main class="main">
+      <div id="empty" class="empty">
+        <h1>Watch the solver think</h1>
+        <p>Pick a project with open conflicts and start a run. The solver works in four stages, one after another.
+          Each stage locks in its best answer before the next one starts:</p>
+        <ol>
+          <li><b>Place as many conflicts as possible</b></li>
+          <li><b>Least disruption</b>: delay·w + early·w + moves·w</li>
+          <li><b>Tightest fit</b>: wasted berth length × days</li>
+          <li><b>Stay on the requested berth</b>: days moved off it</li>
+        </ol>
+        <p>For each stage you'll see the <b>best answer found</b> (the loss) and the <b>bound</b>: the best any answer
+          could possibly be. Where the two meet, the answer is proven optimal. Where the best answer stops moving
+          early, extra seconds buy nothing. The <b>time-limit advisor</b> turns that into a <code>timeLimitSec</code>.</p>
+      </div>
+
+      <div id="run" hidden>
+        <section class="summary-row">
+          <div id="run-title" class="run-title"></div>
+          <div class="controls">
+            <button id="skip" title="Keep this stage's best answer and move on to the next stage">Stop this stage → next</button>
+            <button id="stop" class="danger" title="Keep what's found so far and skip the remaining stages">Stop everything</button>
+          </div>
+        </section>
+
+        <section id="stages" class="stages"></section>
+
+        <section class="panel chart-panel">
+          <div class="chart-head">
+            <h2 id="chart-title">Stage</h2>
+            <div class="toggles">
+              <label class="chk"><input type="checkbox" id="logx" checked> log time</label>
+              <label class="chk"><input type="checkbox" id="logy"> log value</label>
+              <label class="chk"><input type="checkbox" id="follow" checked> follow running stage</label>
+            </div>
+          </div>
+          <div id="chart" class="chart"></div>
+          <div class="legend">
+            <span><i class="sw best"></i>best answer found (loss)</span>
+            <span><i class="sw bound"></i>bound: the best it could possibly be</span>
+            <span><i class="sw last"></i>last improvement</span>
+            <span><i class="sw cap"></i>what-if time limit</span>
+          </div>
+        </section>
+
+        <section class="panel advisor">
+          <h2>Time-limit advisor</h2>
+          <div id="advice"></div>
+          <div class="whatif">
+            <label>What if <code>timeLimitSec</code> =
+              <input type="range" id="whatif" min="1" max="120" value="10"> <b id="whatif-v" class="mono">10</b> s
+            </label>
+            <div id="whatif-out"></div>
+          </div>
+        </section>
+
+        <section class="bottom">
+          <section class="panel">
+            <h2>Result</h2>
+            <div id="result" class="muted">Appears when the run ends.</div>
+          </section>
+          <section class="panel log-panel">
+            <div class="chart-head">
+              <h2>Solver log</h2>
+              <div class="toggles">
+                <label class="chk"><input type="checkbox" id="log-progress"> improvements only</label>
+              </div>
+            </div>
+            <pre id="log" class="log"></pre>
+          </section>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div id="tip" class="tip" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>
