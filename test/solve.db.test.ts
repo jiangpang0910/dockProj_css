@@ -17,7 +17,7 @@ type Row = ParsedWorkbook["rows"][number];
 const row = (berthLabel: string, occupantType: Row["occupantType"], title: string, s: string, e: string): Row =>
   ({ berthLabel, occupantType, title, startDate: s, endDate: e, notes: null, sheet: "2030", cell: null, classifiedBy: "regex" });
 const book = (rows: Row[]): ParsedWorkbook => ({
-  version: 1, format: "legacy_grid", stats: { sheets: 1, cells: rows.length, modelCalls: 0 },
+  version: 1, format: "legacy_grid", stats: { sheets: 1, cells: rows.length, modelCalls: 0 }, tours: [], usage: [],
   berths: [
     { name: "A", kind: "berth", lengthFt: 90, sortOrder: 1 },
     { name: "B", kind: "berth", lengthFt: 85, sortOrder: 2 },

@@ -166,9 +166,12 @@ describe("projects", () => {
     expect(e.counts).toEqual({ berths: 0, vessels: 0, bookings: 0 });
   });
 
-  it("templates are read-only (403) and never listed", async () => {
-    const { s } = await makeTemplates();
-    const e = await fails(createBooking(s.pid, vesselAt(s.NPW, s.SMALL, "2019-08-01", "2019-08-02")));
+  it("the sample is the shared workspace: writable, undeletable; defaults stays read-only; neither is listed", async () => {
+    const { d, s } = await makeTemplates();
+    const b = await createBooking(s.pid, vesselAt(s.NPW, s.SMALL, "2019-08-01", "2019-08-02"));
+    expect(b.berthId).toBe(s.NPW);
+    expect((await fails(deleteProject(s.pid))).status).toBe(403);
+    const e = await fails(createBooking(d.pid, vesselAt(d.NPW, d.SMALL, "2019-08-01", "2019-08-02")));
     expect(e.status).toBe(403);
     const mine = await createProject({ name: "Mine", start: "empty" }, "editor");
     await createProject({ name: "Theirs", start: "empty" }, "other");

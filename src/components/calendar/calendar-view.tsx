@@ -142,11 +142,10 @@ export function CalendarView() {
           </div>
         ) : allBerths.length === 0 ? (
           <div className="rounded-xl border bg-surface p-8 text-center">
-            <p className="font-medium">This project has no berths yet.</p>
-            <p className="mt-1 text-sm text-ink-muted">Add them by hand, or upload a spreadsheet that has them.</p>
+            <p className="font-medium">This workspace has no berths yet.</p>
+            <p className="mt-1 text-sm text-ink-muted">Add them by hand, or re-seed the workspace from the workbook.</p>
             <div className="mt-4 flex justify-center gap-2">
               <Link href={`/p/${pid}/berths`} className="inline-flex h-8 items-center rounded-lg bg-primary px-3 text-sm text-primary-foreground">Add berths</Link>
-              <Link href={`/p/${pid}/import`} className="inline-flex h-8 items-center rounded-lg border px-3 text-sm">Upload a spreadsheet</Link>
             </div>
           </div>
         ) : (

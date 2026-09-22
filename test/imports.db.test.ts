@@ -21,7 +21,7 @@ const row = (berthLabel: string | null, occupantType: "vessel" | "event" | "clos
 
 /** Planning 27 Apr 2008 – 15 Jan 2009 over a file that spans 2007–2010. */
 const grid: ParsedWorkbook = {
-  version: 1, format: "legacy_grid", stats: { sheets: 4, cells: 900, modelCalls: 0 },
+  version: 1, format: "legacy_grid", stats: { sheets: 4, cells: 900, modelCalls: 0 }, tours: [], usage: [],
   berths: [
     { name: "North Pier West", kind: "berth", lengthFt: 410, sortOrder: 1 },
     { name: "South Float East", kind: "berth", lengthFt: 90, sortOrder: 2 },
@@ -232,14 +232,14 @@ describe("conflicts", () => {
     expect(mine.map((c) => c.type)).toEqual(["OVERLAP", "VESSEL_TOO_LONG", "NO_BERTH"]);
     const cloneNpw = (await listBerths(clone.id)).find((b) => b.name === "North Pier West")!.id;
     expect(mine[0]).toMatchObject({ berthId: cloneNpw, importId: null, blockers: [expect.objectContaining({ title: "R/V High Drift" })] });
-    expect((await fails(resolveConflict(pid, mine[0].id, { action: "dismiss" }))).status).toBe(403); // template is read-only
+    expect((await fails(resolveConflict(pid, mine[0].id, { action: "dismiss" }))).status).toBe(404); // the clone's conflict is not in this project
   });
 });
 
 describe("template format", () => {
   it("brings in the whole Vessels sheet; existing names are kept and noted", async () => {
     const tpl: ParsedWorkbook = {
-      version: 1, format: "template", stats: { sheets: 3, cells: 40, modelCalls: 0 },
+      version: 1, format: "template", stats: { sheets: 3, cells: 40, modelCalls: 0 }, tours: [], usage: [],
       berths: [{ name: "Dock A", kind: "berth", lengthFt: 100, sortOrder: 1 }],
       vessels: [
         { name: "R/V One", lengthFt: 80, draftFt: 5, operator: "WHOI", notes: null },
@@ -283,29 +283,4 @@ describe.skipIf(!fs.existsSync("pipeline/cli.py"))("the real pipeline (slow)", (
     await commitImport(pid, run.id);
     expect((await conflictSummary(pid)).open).toBe(run.counts.conflicts);
   }, 120_000);
-});
-
-describe.skipIf(!fs.existsSync("pipeline/cli.py"))("a filled-in dock-template.xlsx through the real pipeline (slow)", () => {
-  it("sets up berths, vessels and bookings in an empty project, flagging the bad rows", async () => {
-    const ExcelJS = (await import("exceljs")).default;
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.readFile("public/dock-template.xlsx");
-    wb.getWorksheet("Berths")!.addRows([["Dock A", 100, 1], ["Slips", null, 2]]);
-    wb.getWorksheet("Vessels")!.addRows([["R/V Fits", 80, null, null, null], ["R/V Too Big", 150, null, null, null]]);
-    wb.getWorksheet("Bookings")!.addRows([
-      ["Dock A", "vessel", "R/V Fits", new Date(Date.UTC(2008, 5, 1)), new Date(Date.UTC(2008, 5, 3)), null],
-      ["Dock A", "vessel", "R/V Too Big", "2008-07-01", "2008-07-02", null],
-      ["Slips", "event", "Sea Scouts", "2008-06-02", "2008-06-02", null],
-    ]);
-    const bytes = new Uint8Array(await wb.xlsx.writeBuffer());
-    const run = await uploadImport(pid, "mine.xlsx", bytes, { noModel: true, planTo: "2009-01-15" });
-    expect(run.format).toBe("template");
-    expect(run.counts).toMatchObject({ berths: 2, vessels: 2, bookings: 2 });
-    expect((await listIssues(pid, run.id, {})).items).toEqual([]);
-    expect(run.conflictCounts).toEqual({ VESSEL_TOO_LONG: 1 });
-    await commitImport(pid, run.id);
-    const live = await listBookings(pid, { from: "2008-01-01", to: "2008-12-31" });
-    expect(live.map((b) => [b.title, b.startDate, b.endDate])).toEqual([
-      ["R/V Fits", "2008-06-01", "2008-06-03"], ["Sea Scouts", "2008-06-02", "2008-06-02"]]);
-  }, 60_000);
 });

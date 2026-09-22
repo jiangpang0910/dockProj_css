@@ -144,9 +144,10 @@ async function persistPlan(
   q: Queryable, pid: string, filename: string, parsed: ParsedWorkbook, plan: StagePlan, window: { from: ISODate; to: ISODate },
 ): Promise<string> {
   const { rows: [{ id }] } = await q.query<{ id: string }>(
-    `INSERT INTO import_run (project_id, filename, format, status, sheets, cells, plan_from, plan_to, outside_window)
-     VALUES ($1, $2, $3, 'previewed', $4, $5, $6, $7, $8) RETURNING id`,
-    [pid, filename, plan.format, parsed.stats.sheets, parsed.stats.cells, window.from, window.to, plan.outsideWindow]);
+    `INSERT INTO import_run (project_id, filename, format, status, sheets, cells, plan_from, plan_to, outside_window, extras)
+     VALUES ($1, $2, $3, 'previewed', $4, $5, $6, $7, $8, $9) RETURNING id`,
+    [pid, filename, plan.format, parsed.stats.sheets, parsed.stats.cells, window.from, window.to, plan.outsideWindow,
+      parsed.tours.length || parsed.usage.length ? JSON.stringify({ tours: parsed.tours, usage: parsed.usage }) : null]);
 
   const json = (v: unknown) => JSON.stringify(v);
   if (plan.berths.length) {
@@ -240,6 +241,20 @@ export async function commitImport(pid: string, id: string): Promise<ImportRun> 
          berth_id  = (SELECT be.id FROM berth be WHERE be.project_id = $2 AND lower(be.name) = lower(c.berth_name)),
          vessel_id = (SELECT v.id FROM vessel v WHERE v.project_id = $2 AND lower(v.name) = lower(c.vessel_name))
        WHERE c.import_id = $1 AND c.status = 'staged'`, [id, pid]);
+    // the workbook's reference tabs: tours (no berth, so no rules) and the usage summary, both keyed to dedupe a re-commit
+    await q.query(
+      `INSERT INTO tour (project_id, date, time, guide, guest, people, vessel_name, notes)
+       SELECT $2, x.date, x.time, x.guide, x.guest, x.people, x.vessel, x.notes
+       FROM import_run r, jsonb_to_recordset(coalesce(r.extras -> 'tours', '[]'::jsonb))
+         AS x(date date, time text, guide text, guest text, people int, vessel text, notes text)
+       WHERE r.id = $1
+       ON CONFLICT DO NOTHING`, [id, pid]);
+    await q.query(
+      `INSERT INTO berth_usage (project_id, berth_name, year, days)
+       SELECT $2, x.berth, x.year, x.days
+       FROM import_run r, jsonb_to_recordset(coalesce(r.extras -> 'usage', '[]'::jsonb)) AS x(berth text, year int, days int)
+       WHERE r.id = $1
+       ON CONFLICT (project_id, berth_name, year) DO UPDATE SET days = EXCLUDED.days`, [id, pid]);
     await q.query("UPDATE import_run SET status = 'committed', committed_at = now() WHERE id = $1", [id]);
 
     // A project made today, a workbook from years ago: with today outside what was just imported the schedule would

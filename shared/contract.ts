@@ -83,6 +83,30 @@ export interface Vessel {
   operator: string | null;
   notes: string | null;
 }
+/** A guided visit aboard a vessel (the workbook's Tours tab). Holds no berth: never a booking. */
+export interface Tour {
+  id: Id;
+  date: ISODate;
+  time: string | null;        // "15:30", or free text ("tbd")
+  guide: string | null;
+  guest: string | null;
+  people: number | null;
+  vesselName: string | null;  // as written; vesselId when a vessel of that name is on record
+  vesselId: Id | null;
+  notes: string | null;
+}
+export interface TourInput {
+  date: ISODate;
+  time?: string | null;
+  guide?: string | null;
+  guest?: string | null;
+  people?: number | null;
+  vesselName?: string | null;
+  notes?: string | null;
+}
+/** Days of use per berth per year as the workbook's summary tab counted them (reference figures). */
+export interface BerthUsage { berthName: string; berthId: Id | null; year: number; days: number }
+
 export interface VesselInput {
   name: string;
   lengthFt: number;           // required when registering by hand
@@ -430,6 +454,14 @@ export const AvailabilityQuerySchema = z.object({
 export const ImportFieldsSchema = z.object({ planTo: isoDate.optional() });   // absent: the window is read from the file
 
 export type LengthFilter = "known" | "unknown";   // GET /vessels?length=: only vessels with / without a length; absent = all
+const optText = z.string().trim().max(500).nullable().optional().transform((s) => (s ? s : null));
+export const TourInputSchema = z.object({
+  date: isoDate,
+  time: z.string().trim().max(40).nullable().optional().transform((s) => (s ? s : null)),
+  guide: optText, guest: optText, vesselName: optText, notes: optText,
+  people: z.number().int().min(0).nullable().optional().transform((n) => n ?? null),
+});
+export const TourPatchSchema = TourInputSchema.partial();
 export const VesselsQuerySchema = z.object({ q: z.string().optional(), length: z.enum(["known", "unknown"]).optional() });
 export const BerthsQuerySchema = z.object({ includeInactive: bool.optional() });
 const conflictType = z.enum(["OVERLAP", "VESSEL_TOO_LONG", "VESSEL_DOUBLE_BERTHED", "NO_BERTH", "BERTH_INACTIVE"]);

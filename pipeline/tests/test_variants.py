@@ -67,8 +67,8 @@ class Variant:
                 self.assertIn("same name", g["notes"] or "", v["name"])
 
     def test_berths(self):
-        want = {(b["name"], b["kind"], b["lengthFt"]) for b in self.truth["berths"]}
-        got = {(b["name"], b["kind"], b["lengthFt"]) for b in self.out["berths"]}
+        want = {(b["name"], b["lengthFt"]) for b in self.truth["berths"]}
+        got = {(b["name"], b["lengthFt"]) for b in self.out["berths"]}
         self.assertEqual(got, want)
 
     def test_no_errors_or_warnings(self):
@@ -168,7 +168,7 @@ class TableReader(unittest.TestCase):
         check_shape(self, d)
         self.assertEqual(d["format"], "table")
         self.assertEqual({v["name"]: v["lengthFt"] for v in d["vessels"]}, {"North Bridge Speedster": 46, "Sea Fox II": None})
-        self.assertEqual([(b["name"], b["kind"], b["lengthFt"]) for b in d["berths"]], [("Inner Channel", "berth", 90)])
+        self.assertEqual([(b["name"], b["lengthFt"]) for b in d["berths"]], [("Inner Channel", 90)])
         self.assertEqual([r["title"] for r in d["rows"]], ["North Bridge Speedster", "North Bridge Speedster", "Sea Fox II"])
         self.assertEqual([i["code"] for i in d["issues"]], ["COLUMN_MAPPING"])
 

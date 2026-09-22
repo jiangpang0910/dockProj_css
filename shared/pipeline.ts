@@ -53,6 +53,18 @@ export const ParsedIssueSchema = z.object({
   row: ParsedRowSchema.nullable(),         // present when a booking could still be made from it (NO_BERTH, UNPARSEABLE_CELL…)
 });
 
+// The legacy workbook's reference tabs, read whole (pipeline/dockparse/extras.py). Neither holds a berth.
+export const ParsedTourSchema = z.object({
+  date: isoDate,
+  time: z.string().nullable(),             // "15:30", or the sheet's own words ("tbd")
+  guide: z.string().nullable(),
+  guest: z.string().nullable(),
+  people: z.number().int().nullable(),
+  vessel: z.string().nullable(),           // as written; matched to a vessel by name where one exists
+  notes: z.string().nullable(),
+});
+export const ParsedUsageSchema = z.object({ berth: z.string().min(1), year: z.number().int(), days: z.number().int() });
+
 export const ParsedWorkbookSchema = z.object({
   version: z.literal(1),
   format: z.enum(["template", "legacy_grid", "table"]).nullable(),   // null = UNKNOWN_FORMAT
@@ -61,6 +73,8 @@ export const ParsedWorkbookSchema = z.object({
   vessels: z.array(ParsedVesselSchema),
   rows: z.array(ParsedRowSchema),          // bookable rows (berth known); NOT window-filtered, NOT rule-checked
   issues: z.array(ParsedIssueSchema),
+  tours: z.array(ParsedTourSchema).default([]),      // absent from older parser output
+  usage: z.array(ParsedUsageSchema).default([]),
 });
 
 export type ParsedBerth = z.infer<typeof ParsedBerthSchema>;
@@ -68,3 +82,5 @@ export type ParsedVessel = z.infer<typeof ParsedVesselSchema>;
 export type ParsedRow = z.infer<typeof ParsedRowSchema>;
 export type ParsedIssue = z.infer<typeof ParsedIssueSchema>;
 export type ParsedWorkbook = z.infer<typeof ParsedWorkbookSchema>;
+export type ParsedTour = z.infer<typeof ParsedTourSchema>;
+export type ParsedUsage = z.infer<typeof ParsedUsageSchema>;

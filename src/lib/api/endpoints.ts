@@ -4,7 +4,6 @@ import { api, qs } from "./client";
 
 export const health        = () => api<{ ok: true }>("/health");
 export const listProjects  = () => api<T.Project[]>("/projects");
-export const openSample    = () => api<T.Project>("/projects/sample", { method: "POST" });
 export const createProject = (body: T.ProjectInput) => api<T.Project>("/projects", { method: "POST", json: body });
 export const getProject    = (pid: T.Id) => api<T.Project>(`/projects/${pid}`);
 export const renameProject = (pid: T.Id, body: T.ProjectPatch) => api<T.Project>(`/projects/${pid}`, { method: "PATCH", json: body });
@@ -15,7 +14,6 @@ export type BookingsFilter = {
   occupantType?: T.OccupantType; q?: string; includeCancelled?: boolean;
 };
 export type ConflictsFilter = { type?: T.ConflictType; status?: T.ConflictStatus; berthId?: T.Id; q?: string; cursor?: string; limit?: number };
-export type IssuesFilter = { severity?: "error" | "warning" | "info"; code?: string; resolved?: boolean; cursor?: string; limit?: number };
 
 // everything else is scoped: const p = inProject(pid); p.getSchedule(from, to)
 export const inProject = (pid: T.Id) => {
@@ -30,6 +28,12 @@ export const inProject = (pid: T.Id) => {
     deleteBerth:   (id: T.Id) => api<void>(`${P}/berths/${id}`, { method: "DELETE" }),
 
     listVessels:   (q?: string, length?: T.LengthFilter) => api<T.Vessel[]>(`${P}/vessels?${qs({ q, length })}`),
+
+    listTours:     (f: { from?: T.ISODate; to?: T.ISODate; q?: string } = {}) => api<T.Tour[]>(`${P}/tours?${qs(f)}`),
+    createTour:    (body: T.TourInput) => api<T.Tour>(`${P}/tours`, { method: "POST", json: body }),
+    updateTour:    (id: T.Id, body: Partial<T.TourInput>) => api<T.Tour>(`${P}/tours/${id}`, { method: "PATCH", json: body }),
+    deleteTour:    (id: T.Id) => api<void>(`${P}/tours/${id}`, { method: "DELETE" }),
+    berthUsage:    () => api<T.BerthUsage[]>(`${P}/usage`),
     createVessel:  (body: T.VesselInput) => api<T.Vessel>(`${P}/vessels`, { method: "POST", json: body }),
     updateVessel:  (id: T.Id, body: Partial<T.VesselInput>) => api<T.Vessel>(`${P}/vessels/${id}`, { method: "PATCH", json: body }),
     deleteVessel:  (id: T.Id) => api<void>(`${P}/vessels/${id}`, { method: "DELETE" }),
@@ -46,20 +50,6 @@ export const inProject = (pid: T.Id) => {
 
     availability:  (q: { startDate: T.ISODate; endDate: T.ISODate; vesselId?: T.Id; lengthFt?: number }) =>
       api<T.AvailabilityResult>(`${P}/availability?${qs(q)}`),
-
-    uploadImport:  (file: File, planTo?: T.ISODate) => {
-      const f = new FormData();
-      f.append("file", file);
-      if (planTo) f.append("planTo", planTo);
-      return api<T.ImportRun>(`${P}/imports`, { method: "POST", body: f });
-    },
-    listImports:   () => api<T.ImportRun[]>(`${P}/imports`),
-    getImport:     (id: T.Id) => api<T.ImportRun>(`${P}/imports/${id}`),
-    listIssues:    (id: T.Id, f: IssuesFilter) => api<T.Page<T.ImportIssue>>(`${P}/imports/${id}/issues?${qs(f)}`),
-    commitImport:  (id: T.Id) => api<T.ImportRun>(`${P}/imports/${id}/commit`, { method: "POST" }),
-    discardImport: (id: T.Id) => api<void>(`${P}/imports/${id}`, { method: "DELETE" }),
-    resolveIssue:  (id: T.Id, issueId: T.Id, body: T.ResolveIssueInput) =>
-      api<T.ImportIssue>(`${P}/imports/${id}/issues/${issueId}/resolve`, { method: "POST", json: body }),
 
     listConflicts:    (f: ConflictsFilter) => api<T.Page<T.Conflict>>(`${P}/conflicts?${qs(f)}`),
     conflictSummary:  () => api<T.ConflictSummary>(`${P}/conflicts/summary`),

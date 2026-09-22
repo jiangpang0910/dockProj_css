@@ -23,6 +23,7 @@ import openpyxl
 
 from . import model
 from .classify import classify, vessel_display, vessel_key
+from .extras import read_tours, read_usage
 from .grid import is_grid_sheet, parse_grid
 from .registry import read_registry
 from .table import FIELDS, read_tables
@@ -31,8 +32,8 @@ from .template import HEADERS as TEMPLATE_HEADERS, parse_template, template_shee
 VERSION = 1
 REGISTRY_SHEETS = ("Science", "Yachts")
 # the legacy workbook's extra tabs: known, and known not to hold bookings
-REFERENCE_SHEETS = {"Tours": "Tours log (reference only, not imported)",
-                    "8YR Dock Summary": "summary table (reference only, not imported)"}
+REFERENCE_SHEETS = {"Tours": "Tours log (read by extras.py)",
+                    "8YR Dock Summary": "usage summary (read by extras.py)"}
 MODEL_LAYOUT_MIN_ROWS, MODEL_LAYOUT_MIN_COLS = 3, 2
 
 
@@ -82,9 +83,10 @@ def _parse(wb, use_model: bool, ledger) -> dict:
     tmpl = template_sheets(wb)
     other = [ws for ws in wb.worksheets
              if ws not in grid_ws and ws.title not in tmpl and ws.title not in REGISTRY_SHEETS and ws.title not in REFERENCE_SHEETS]
+    tours, usage = read_tours(wb, ledger), read_usage(wb, ledger)
     if ledger is not None:
         for ws in wb.worksheets:
-            what = REFERENCE_SHEETS.get(ws.title) or ("our template sheet" if ws.title in tmpl else None)
+            what = ("our template sheet" if ws.title in tmpl else None) or REFERENCE_SHEETS.get(ws.title)
             if what:
                 for row in ws.iter_rows():
                     for c in row:
@@ -161,7 +163,8 @@ def _parse(wb, use_model: bool, ledger) -> dict:
     fmt = "table" if read_table else "template" if tmpl and not grid_ws else "legacy_grid" if grid_ws else "template"
     rows = _dedupe(rows, issues)
     return _out(fmt, n_sheets, n_cells, calls, berths, sorted(vessels.values(), key=lambda v: v["name"]),
-                sorted(rows, key=lambda r: (r["startDate"], r["berthLabel"] or "", r["title"])), issues)
+                sorted(rows, key=lambda r: (r["startDate"], r["berthLabel"] or "", r["title"])), issues,
+                tours=tours, usage=usage)
 
 
 def _worth_asking(ws):
@@ -279,7 +282,8 @@ def _run_grid(wb, use_model, ledger=None):
     berths = [{"name": name,
                "lengthFt": max(b["lengths"], key=b["lengths"].get) if b["lengths"] else None,
                "sortOrder": b["order"]} for name, b in grid_berths.items()]
-    vessels = {k: {"name": v["name"], "lengthFt": v["lengthFt"], "draftFt": v["draftFt"], "operator": None, "notes": None}
+    vessels = {k: {"name": v["name"], "lengthFt": v["lengthFt"], "draftFt": v["draftFt"],
+                   "operator": v.get("operator"), "notes": v.get("notes")}
                for k, v in registry.items()}
     for row in rows + [i["row"] for i in issues if i["code"] == "NO_BERTH"]:
         if row["occupantType"] == "vessel":
@@ -303,7 +307,8 @@ def _share_namesake_lengths(vessels):
         src = known.get(_name_body(v["name"])) if v["lengthFt"] is None else None
         if src:
             v["lengthFt"] = src["lengthFt"]
-            v["notes"] = f"Length taken from {src['name']} (same name)."
+            taken = f"Length taken from {src['name']} (same name)."
+            v["notes"] = f"{taken} {v['notes']}" if v.get("notes") else taken
 
 
 def _name_body(name):
@@ -343,6 +348,7 @@ def _unknown(message):
                                              "message": message, "row": None}])
 
 
-def _out(fmt, n_sheets, n_cells, calls, berths, vessels, rows, issues):
+def _out(fmt, n_sheets, n_cells, calls, berths, vessels, rows, issues, tours=None, usage=None):
     return {"version": VERSION, "format": fmt, "stats": {"sheets": n_sheets, "cells": n_cells, "modelCalls": calls},
-            "berths": berths, "vessels": vessels, "rows": rows, "issues": issues}
+            "berths": berths, "vessels": vessels, "rows": rows, "issues": issues,
+            "tours": tours or [], "usage": usage or []}

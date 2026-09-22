@@ -1,8 +1,7 @@
 "use client";
-// Conflicts (frontend.md §3.9): rows from committed imports that couldn't be placed as written. Filter by type /
+// Conflicts (frontend.md §3.9): rows of the seeded workbook that couldn't be placed as written. Filter by type /
 // berth / status, place each one on a berth (optionally on other days), or dismiss one or a whole type at once.
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -215,12 +214,11 @@ function Chip({ active, children, ...rest }: { active: boolean } & React.ButtonH
 }
 
 function Empty({ status, filtered, total }: { status: ConflictStatus; filtered: boolean; total: number }) {
-  const { pid } = useProjectCtx();
   return (
     <div className="rounded-xl border border-dashed px-4 py-10 text-center text-sm text-ink-muted">
       {filtered ? "Nothing matches these filters." :
        status !== "open" ? `Nothing ${status} yet.` :
-       total === 0 ? <>No conflicts. Every row from your imports is on the schedule, or there hasn&rsquo;t been an import yet. <Link className="text-harbor hover:underline" href={`/p/${pid}/import`}>Import a spreadsheet</Link></> :
+       total === 0 ? "No conflicts. Every row of the workbook is on the schedule." :
        "Nothing here."}
     </div>
   );

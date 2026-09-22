@@ -34,8 +34,7 @@ def check_shape(t, d):
     t.assertIn(d["format"], ("template", "legacy_grid", "table", None))
     t.assertEqual(set(d["stats"]), {"sheets", "cells", "modelCalls"})
     for b in d["berths"]:
-        t.assertEqual(set(b), {"name", "kind", "lengthFt", "sortOrder"})
-        t.assertIn(b["kind"], ("berth", "section"))
+        t.assertEqual(set(b), {"name", "lengthFt", "sortOrder"})
         t.assertTrue(b["lengthFt"] is None or b["lengthFt"] > 0)
     for v in d["vessels"]:
         t.assertEqual(set(v), {"name", "lengthFt", "draftFt", "operator", "notes"})
@@ -185,9 +184,9 @@ class SampleWorkbook(unittest.TestCase):
         check_shape(self, self.d)
 
     def test_berths_match_the_default_fleet(self):
-        got = [(b["name"], b["kind"], b["lengthFt"]) for b in self.d["berths"]]
+        got = [(b["name"], b["lengthFt"]) for b in self.d["berths"]]
         defaults = json.loads((ROOT / "backend" / "seed" / "defaults.json").read_text())["berths"]
-        self.assertEqual(got, [(b["name"], b["kind"], b["lengthFt"]) for b in defaults])
+        self.assertEqual(got, [(b["name"], b["lengthFt"]) for b in defaults])
 
     def test_golden_counts(self):
         from collections import Counter
@@ -195,13 +194,23 @@ class SampleWorkbook(unittest.TestCase):
         self.assertEqual(self.d["format"], "legacy_grid")
         self.assertEqual(self.d["stats"]["sheets"], 23)
         self.assertTrue(1900 <= len(self.d["rows"]) <= 2300, len(self.d["rows"]))
-        self.assertTrue(100 <= codes["NO_BERTH"] <= 140, codes["NO_BERTH"])        # overflow rows under South Float East
+        self.assertTrue(150 <= codes["NO_BERTH"] <= 190, codes["NO_BERTH"])        # overflow rows under South Float East + names in the corrupted 2010 headers
         self.assertEqual(codes["DUPLICATE_CARRYOVER"], 3)
         self.assertEqual(codes["HEADER_YEAR_MISMATCH"], 2)
         self.assertTrue(100 <= codes["ANNOTATION_SKIPPED"] <= 130)
         self.assertEqual(codes["OUTSIDE_MONTH_COLUMNS"], 0)    # weekday-aligned spill columns are dated now
         self.assertEqual(codes["UNPARSEABLE_CELL"], 0)         # "Bunker barge" is a fuelling note
         self.assertTrue(50 <= codes["HEADER_AREA_TEXT"] <= 70)  # the corrupted Nov/Dec 2010 headers
+        header_names = [i["row"] for i in self.d["issues"] if i["code"] == "NO_BERTH" and i["sheet"] == "2010" and i["cell"][-3:] in ("117", "118", "128", "129")]
+        self.assertTrue(len(header_names) >= 20, len(header_names))
+        self.assertEqual(len(self.d["tours"]), 32)
+        self.assertEqual(self.d["tours"][0]["date"], "2018-04-29")
+        self.assertEqual(len(self.d["usage"]), 56)
+        self.assertEqual(self.d["usage"][0], {"berth": "North Pier West", "year": 2006, "days": 127})
+        drift = next(v for v in self.d["vessels"] if v["name"] == "R/V High Drift")
+        self.assertEqual(drift["operator"], "Coastal Survey Partners")
+        self.assertIn("Parker Underhill", drift["notes"])
+        self.assertIn("rowan.oakes@example.com", drift["notes"])
         self.assertTrue(180 <= codes["UNLABELED_BAR"] <= 260)
 
     def test_bars_are_read_as_stays(self):
@@ -304,13 +313,12 @@ class ModelStep(unittest.TestCase):
 class Template(unittest.TestCase):
     def build(self, wb):
         b = wb.create_sheet("Berths")
-        b.append(["Name", "Kind", "Length (ft)", "Order"])
-        b.append(["e.g. Example Pier", "berth", 100, 1])
-        b.append(["Main Pier", "berth", 300, 1])
-        b.append(["Slips", "section", None, 2])
-        b.append(["Bad", "dock", 10, 3])
-        b.append(["main pier", "berth", 200, 4])
-        b.append(["No Length", "berth", None, 5])
+        b.append(["Name", "Length (ft)", "Order"])
+        b.append(["e.g. Example Pier", 100, 1])
+        b.append(["Main Pier", 300, 1])
+        b.append(["Slips", None, 2])          # no length: fit can't be checked there, but it is a berth like any other
+        b.append(["main pier", 200, 4])
+        b.append(["No Length", None, 5])
         v = wb.create_sheet("Vessels")
         v.append(["Name", "Length (ft)", "Draft (ft)", "Operator", "Notes"])
         v.append(["R/V SEA LION", "120'", 9, "WHOI", None])
@@ -334,8 +342,8 @@ class Template(unittest.TestCase):
         self.assertEqual(self.d["format"], "template")
 
     def test_berths(self):
-        self.assertEqual([(b["name"], b["kind"], b["lengthFt"]) for b in self.d["berths"]],
-                         [("Main Pier", "berth", 300), ("Slips", "section", None)])
+        self.assertEqual([(b["name"], b["lengthFt"]) for b in self.d["berths"]],
+                         [("Main Pier", 300), ("Slips", None), ("No Length", None)])
 
     def test_vessels_incl_unlisted_booked_one(self):
         names = {v["name"]: v["lengthFt"] for v in self.d["vessels"]}
@@ -351,9 +359,7 @@ class Template(unittest.TestCase):
     def test_issues(self):
         got = sorted((i["code"], i["cell"]) for i in self.d["issues"])
         self.assertEqual(got, sorted([
-            ("INVALID_VALUE", "B5"),     # kind "dock"
-            ("DUPLICATE_NAME", "A6"),    # "main pier" again
-            ("INVALID_VALUE", "C7"),     # berth without length
+            ("DUPLICATE_NAME", "A5"),    # "main pier" again
             ("INVALID_VALUE", "B4"),     # negative vessel length
             ("INVALID_VALUE", "B5"),     # type "party"  (Bookings!B5)
             ("INVALID_VALUE", "D6"),     # 2027-02-30
@@ -373,7 +379,7 @@ class Template(unittest.TestCase):
         self.assertEqual([i["sheet"] for i in d["issues"] if i["code"] == "TEMPLATE_BAD_HEADER"], [])
         self.assertEqual([i["sheet"] for i in d["issues"] if i["code"] == "COLUMN_MAPPING"], ["Vessels"])
         self.assertEqual({v["name"]: v["lengthFt"] for v in d["vessels"]}["R/V Sea Lion"], 120)
-        self.assertEqual(len(d["berths"]), 2)
+        self.assertEqual(len(d["berths"]), 3)
 
     def test_template_sheet_nobody_can_read_is_an_error(self):
         # unknown headers AND nothing in the values to go on (an empty sheet): that is a bad template sheet
@@ -409,7 +415,7 @@ class Edges(unittest.TestCase):
 
     def test_cli_stdin_roundtrip(self):
         p = subprocess.run([sys.executable, "-m", "pipeline.cli", "--stdin", "--no-model"], cwd=ROOT,
-                           input=xlsx(lambda wb: wb.create_sheet("Berths").append(["Name", "Kind", "Length (ft)", "Order"])),
+                           input=xlsx(lambda wb: wb.create_sheet("Berths").append(["Name", "Length (ft)", "Order"])),
                            capture_output=True, check=True)
         self.assertEqual(json.loads(p.stdout)["format"], "template")
 

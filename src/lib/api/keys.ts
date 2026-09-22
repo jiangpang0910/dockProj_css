@@ -10,10 +10,9 @@ export const qk = {
   availability: (pid: string, q: object) => [pid, "availability", q] as const,
   vessels: (pid: string, q?: string, length?: LengthFilter) => [pid, "vessels", q ?? "", length ?? "all"] as const,
   berths: (pid: string, includeInactive = false) => [pid, "berths", includeInactive] as const,
+  tours: (pid: string, f: object = {}) => [pid, "tours", f] as const,
+  usage: (pid: string) => [pid, "usage"] as const,
   settings: (pid: string) => [pid, "settings"] as const,
-  imports: (pid: string) => [pid, "imports"] as const,
-  importRun: (pid: string, id: string) => [pid, "imports", id] as const,
-  issues: (pid: string, id: string, f: object) => [pid, "imports", id, "issues", f] as const,
   conflicts: (pid: string, f: object) => [pid, "conflicts", f] as const,
   conflictSummary: (pid: string) => [pid, "conflicts", "summary"] as const,
 };

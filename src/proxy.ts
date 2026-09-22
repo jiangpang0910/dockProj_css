@@ -16,4 +16,4 @@ export async function proxy(req: NextRequest) {
 }
 
 // Only pages. Never match _next/static or /api: assets must load on the login page, and the API answers 401 itself.
-export const config = { matcher: ["/", "/login", "/new", "/p/:path*"] };
+export const config = { matcher: ["/", "/login", "/p/:path*"] };

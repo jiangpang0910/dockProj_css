@@ -18,6 +18,7 @@ import { OccupantIcon } from "@/components/booking/occupant";
 import { useBookingEditor } from "@/components/booking/booking-editor";
 import { useBerths, useProjectCtx, useToday } from "@/components/project/project-context";
 import { ErrorBox, PageHeader } from "./page-header";
+import { ToursSection } from "./tours";
 
 export function EventsScreen() {
   const { pid, api } = useProjectCtx();
@@ -98,6 +99,7 @@ export function EventsScreen() {
           {past.length > 0 && <Table title="Past" count={past.length} rows={past} loading={false} muted />}
         </div>
       )}
+      <ToursSection />
     </div>
   );
 }

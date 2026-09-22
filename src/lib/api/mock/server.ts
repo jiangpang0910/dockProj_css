@@ -1,26 +1,23 @@
 // In-browser mock of the API (NEXT_PUBLIC_API_MOCK=1). Implements every row of frontend.md §7.2 against an
 // in-memory world persisted to localStorage, with the same status codes and ApiError shapes as the real server.
 import {
-  DATE_MAX, DATE_MIN, HARD_HORIZON_YEARS, MAX_WINDOW_DAYS,
+  DATE_MAX, DATE_MIN, MAX_WINDOW_DAYS,
   CONFLICT_TYPES,
   type ApiError, type ApplyProposalsInput, type AvailabilityOption, type Berth, type Booking, type BookingInput,
-  type BookingView, type Conflict, type ConflictSummary, type ConflictType, type ImportIssue, type ImportRun, type ISODate,
+  type BookingView, type Conflict, type ConflictSummary, type ConflictType, type ISODate,
   type Project, type ProjectOrigin, type Proposal, type ProposalSegment, type Settings, type SolveRequest, type SolveResult,
-  type SolveSkipReason, type Vessel, type Violation,
+  type SolveSkipReason, type Tour, type Vessel, type Violation,
 } from "@shared/contract";
-import { addDays, addYears, diffDays, isISODate, overlaps, spanDays, todayIn } from "@/lib/dates";
+import { addDays, diffDays, isISODate, overlaps, spanDays, todayIn } from "@/lib/dates";
 import { defaultBerths, defaultVessels, newId, sampleProject } from "./fixtures";
 import { UnknownEntity, validate } from "./rules";
 
-interface StagedRow { berthId: string; occupantType: Booking["occupantType"]; vesselName: string | null; vesselLengthFt: number | null; title: string; startDate: ISODate; endDate: ISODate }
 /** A claim the import couldn't place; berth/vessel by name until commit (like the real staging). */
 interface StagedConflict { type: ConflictType; occupantType: Booking["occupantType"]; title: string; berthName: string | null; vesselLengthFt: number | null; startDate: ISODate; endDate: ISODate; sheet: string; cell: string; message: string }
-interface MockImport { run: ImportRun; issues: ImportIssue[]; staged: StagedRow[]; conflicts?: StagedConflict[] }
 interface MockProject {
   meta: Omit<Project, "counts">;
   asOfDate: ISODate | null;
   berths: Berth[]; vessels: Vessel[]; bookings: Booking[];
-  imports: MockImport[];
   conflicts?: Conflict[];   // stored without live fields (blockers, lengths): see conflictOut
 }
 interface World { projects: Record<string, MockProject> }
@@ -81,12 +78,12 @@ function createProjectWorld(name: string, start: ProjectOrigin, asOfDate?: ISODa
   const meta = { id: newId(), name, origin: start, owner: "mock", createdAt: nowTs(), lastOpenedAt: nowTs() };
   if (start === "sample") {
     const s = sampleProject();
-    const p: MockProject = { meta, asOfDate: s.asOfDate, berths: s.berths, vessels: s.vessels, bookings: s.bookings, imports: [] };
+    const p: MockProject = { meta, asOfDate: s.asOfDate, berths: s.berths, vessels: s.vessels, bookings: s.bookings };
     p.conflicts = sampleConflicts(p).map((c) => openConflict(p, c, null));
     return p;
   }
-  if (start === "defaults") return { meta, asOfDate: asOfDate ?? null, berths: defaultBerths(), vessels: defaultVessels(), bookings: [], imports: [] };
-  return { meta, asOfDate: asOfDate ?? null, berths: [], vessels: [], bookings: [], imports: [] };
+  if (start === "defaults") return { meta, asOfDate: asOfDate ?? null, berths: defaultBerths(), vessels: defaultVessels(), bookings: [] };
+  return { meta, asOfDate: asOfDate ?? null, berths: [], vessels: [], bookings: [] };
 }
 
 // ───────── conflicts ─────────
@@ -142,68 +139,6 @@ function sampleConflicts(p: MockProject): StagedConflict[] {
   return out;
 }
 
-// A fake parse of an uploaded workbook: berths/vessels matched to the project, a handful of staged rows,
-// and issues of every kind the triage screen must handle.
-function fakeImport(p: MockProject, file: File | null, planTo?: string): MockImport {
-  const from = asOf(p).asOfDate;
-  const to = planTo && isISODate(planTo) ? planTo : addYears(from, HARD_HORIZON_YEARS);
-  const filename = file?.name ?? "upload.xlsx";
-  const format = /template/i.test(filename) ? "template" : "legacy_grid";
-  const id = newId();
-  if (!p.berths.length) p.berths = defaultBerths();   // a legacy grid creates berths from its labels
-  const berths = sortedBerths(p);
-  const d = (n: number) => addDays(from, n);
-  const staged: StagedRow[] = [];
-  const vesselNames = ["R/V Northern Meridian", "F/V Swift Dory", "S/V Iron Petrel", "M/V Swift Petrel", "Tug Western Current"];
-  for (let i = 0; i < 14; i++) {
-    const b = berths[i % berths.length];
-    const s = d(3 + i * 4), e = d(3 + i * 4 + (i % 3));
-    if (i % 5 === 4) staged.push({ berthId: b.id, occupantType: "event", vesselName: null, vesselLengthFt: null, title: "Community sail day", startDate: s, endDate: s });
-    else staged.push({ berthId: b.id, occupantType: "vessel", vesselName: vesselNames[i % vesselNames.length], vesselLengthFt: 40 + (i % 3) * 5, title: vesselNames[i % vesselNames.length], startDate: s, endDate: e });
-  }
-  const mkIssue = (code: ImportIssue["code"], severity: ImportIssue["severity"], sheet: string, cell: string | null, message: string, row: ImportIssue["row"]): ImportIssue =>
-    ({ id: newId(), importId: id, code, severity, sheet, cell, message, row, resolved: false, resolution: null });
-  const yr = from.slice(0, 4);
-  const conflicts: StagedConflict[] = [
-    { type: "NO_BERTH", occupantType: "vessel", title: "R/V Golden Compass", berthName: null, vesselLengthFt: 124, startDate: d(10), endDate: d(13), sheet: yr, cell: "K41",
-      message: "This row sits on an unlabeled overflow line, so its berth is unknown." },
-    { type: "NO_BERTH", occupantType: "vessel", title: "S/V Far Horizon", berthName: null, vesselLengthFt: null, startDate: d(20), endDate: d(21), sheet: yr, cell: "S43",
-      message: "This row sits on an unlabeled overflow line, so its berth is unknown." },
-    { type: "OVERLAP", occupantType: "vessel", title: "F/V Long Drift", berthName: staged[0] ? p.berths.find((b) => b.id === staged[0].berthId)!.name : null, vesselLengthFt: 60,
-      startDate: staged[0]?.startDate ?? d(3), endDate: staged[0]?.startDate ?? d(3), sheet: yr, cell: "H12", message: "The berth is already held on those days by an earlier row." },
-    { type: "VESSEL_TOO_LONG", occupantType: "vessel", title: "R/V High Drift", berthName: "South Float East", vesselLengthFt: 120, startDate: d(30), endDate: d(33), sheet: yr, cell: "P18",
-      message: "R/V High Drift (120′) is 30′ too long for South Float East (90′)." },
-  ];
-  const issues: ImportIssue[] = [
-    mkIssue("MODEL_CLASSIFIED", "info", yr, "W22", "“Sea Scouts overnight” didn't match a pattern; the model classified it as an event.",
-      { berthLabel: berths[1]?.name ?? null, occupantType: "event", title: "Sea Scouts overnight", vesselLengthFt: null, startDate: d(45), endDate: d(45), classifiedBy: "model" }),
-    mkIssue("UNPARSEABLE_CELL", "warning", yr, "AB30", "Couldn't tell what “Hull survey – yard” is.",
-      { berthLabel: berths[2]?.name ?? null, occupantType: "closure", title: "Hull survey – yard", vesselLengthFt: null, startDate: d(52), endDate: d(53), classifiedBy: "regex" }),
-    mkIssue("OUTSIDE_MONTH_COLUMNS", "warning", yr, "B19", "This cell sits before day 1 of its month block (a carry-over from the previous month).", null),
-    mkIssue("HEADER_YEAR_MISMATCH", "info", "2010", "A60", "Header says “NOVEMBER 2018” but the weekday letters match 2010; used 2010.", null),
-    mkIssue("DUPLICATE_CARRYOVER", "info", "2003", "A2", "December 2002 is repeated at the top of the 2003 sheet; the copy was dropped.", null),
-    ...["ETA 1200", "Fuel truck 0800", "Departs AM", "Water only"].map((t, i) =>
-      mkIssue("ANNOTATION_SKIPPED", "info", yr, `F${50 + i}`, `“${t}” is an operational note, not a booking.`, null)),
-  ];
-  const run: ImportRun = {
-    id, filename, format, status: "previewed", createdAt: nowTs(), committedAt: null, window: { from, to },
-    counts: { sheets: format === "template" ? 3 : 23, cells: 9214, berths: 0, vessels: vesselNames.length, bookings: staged.length, outsideWindow: 1812,
-      issues: issues.length, conflicts: conflicts.length },
-    issueCounts: { error: 0, warning: 0, info: 0 },
-    conflictCounts: conflicts.reduce<ImportRun["conflictCounts"]>((m, c) => ({ ...m, [c.type]: (m[c.type] ?? 0) + 1 }), {}),
-  };
-  recount({ run, issues, staged });
-  return { run, issues, staged, conflicts };
-}
-function recount(imp: MockImport) {
-  const open = imp.issues;
-  imp.run.issueCounts = {
-    error: open.filter((i) => i.severity === "error").length,
-    warning: open.filter((i) => i.severity === "warning").length,
-    info: open.filter((i) => i.severity === "info").length,
-  };
-  imp.run.counts.issues = open.length;
-}
 function findOrCreateVessel(p: MockProject, name: string, lengthFt: number | null): Vessel {
   const found = p.vessels.find((v) => v.name.toLowerCase() === name.toLowerCase());
   if (found) { if (found.lengthFt == null && lengthFt != null) found.lengthFt = lengthFt; return found; }
@@ -322,7 +257,7 @@ export async function mockFetch(url: string, init: RequestInit): Promise<Respons
     return {};
   };
   // realistic latency; the validate call is fast like the real one
-  await sleep(seg.includes("validate") ? 90 : seg.includes("imports") && method === "POST" ? 900 : seg.includes("solve") ? 700 : 160 + Math.random() * 180, init.signal);
+  await sleep(seg.includes("validate") ? 90 : seg.includes("solve") ? 700 : 160 + Math.random() * 180, init.signal);
   const w = load();
 
   if (seg[0] === "health") return json(200, { ok: true });
@@ -361,7 +296,7 @@ export async function mockFetch(url: string, init: RequestInit): Promise<Respons
       if (method === "PATCH") { const n = String(body().name ?? "").trim(); if (!n) return fail(400, "VALIDATION", "Name is required."); p.meta.name = n; save(); return json(200, projectOut(p)); }
       if (method === "DELETE") { delete w.projects[p.meta.id]; save(); return json(204, null); }
     }
-    const [res, id, sub, subId, action] = rest;
+    const [res, id, sub] = rest;
 
     // settings
     if (res === "settings") {
@@ -412,6 +347,23 @@ export async function mockFetch(url: string, init: RequestInit): Promise<Respons
         if (n) return fail(409, "CONFLICT", `Used by ${n} booking${n === 1 ? "" : "s"} — can't delete. Deactivate it instead.`);
         p.berths = p.berths.filter((b) => b.id !== berth.id); save(); return json(204, null);
       }
+    }
+
+    // tours + usage (the workbook's reference tabs): the mock keeps a tiny in-memory list
+    if (res === "usage" && method === "GET") return json(200, []);
+    if (res === "tours") {
+      const tours: Tour[] = (p as MockProject & { tours?: Tour[] }).tours ?? ((p as MockProject & { tours?: Tour[] }).tours = []);
+      if (!id && method === "GET") return json(200, [...tours].sort((a, b) => a.date.localeCompare(b.date)));
+      if (!id && method === "POST") {
+        const b = body() as Partial<Tour>;
+        if (!b.date) return fail(400, "VALIDATION", "date is required.");
+        const t: Tour = { id: newId(), date: b.date, time: b.time ?? null, guide: b.guide ?? null, guest: b.guest ?? null, people: b.people ?? null, vesselName: b.vesselName ?? null, vesselId: null, notes: b.notes ?? null };
+        tours.push(t); save(); return json(201, t);
+      }
+      const t = tours.find((x) => x.id === id);
+      if (!t) return fail(404, "NOT_FOUND", "Tour not found.");
+      if (method === "PATCH") { Object.assign(t, body() as Partial<Tour>); save(); return json(200, t); }
+      if (method === "DELETE") { tours.splice(tours.indexOf(t), 1); save(); return json(204, null); }
     }
 
     // vessels
@@ -552,65 +504,6 @@ export async function mockFetch(url: string, init: RequestInit): Promise<Respons
         return a.berth.sortOrder - b.berth.sortOrder;
       });
       return json(200, { startDate: s, endDate: e, lengthFt, options });
-    }
-
-    // imports
-    if (res === "imports") {
-      if (!id && method === "POST") {
-        const fd = init.body instanceof FormData ? init.body : null;
-        const file = fd?.get("file");
-        if (!(file instanceof File)) return fail(400, "VALIDATION", "Attach an .xlsx file.");
-        const planTo = fd?.get("planTo");
-        const imp = fakeImport(p, file, typeof planTo === "string" ? planTo : undefined);
-        p.imports.unshift(imp); save();
-        return json(201, imp.run);
-      }
-      if (!id && method === "GET") return json(200, p.imports.map((i) => i.run));
-      const imp = p.imports.find((i) => i.run.id === id);
-      if (!imp) return fail(404, "NOT_FOUND", "No such import.");
-      if (!sub && method === "GET") return json(200, imp.run);
-      if (!sub && method === "DELETE") {
-        if (imp.run.status !== "previewed") return fail(409, "CONFLICT", "Only a previewed import can be discarded.");
-        imp.run.status = "discarded"; save(); return json(204, null);
-      }
-      if (sub === "commit" && method === "POST") {
-        if (imp.run.status !== "previewed") return fail(409, "CONFLICT", "This import was already committed or discarded.");
-        for (const row of imp.staged) {
-          const vessel = row.vesselName ? findOrCreateVessel(p, row.vesselName, row.vesselLengthFt) : undefined;
-          const input: BookingInput = { berthId: row.berthId, occupantType: row.occupantType, vesselId: vessel?.id ?? null, title: vessel ? null : row.title, startDate: row.startDate, endDate: row.endDate };
-          if (validate(input, p, { source: "import", asOfDate: settings.asOfDate }).some((v) => v.severity === "error")) continue;
-          p.bookings.push({ id: newId(), berthId: row.berthId, occupantType: row.occupantType, vesselId: vessel?.id ?? null, title: vessel?.name ?? row.title,
-            startDate: row.startDate, endDate: row.endDate, status: "confirmed", notes: null, source: "import", version: 1, createdAt: nowTs(), updatedAt: nowTs() });
-        }
-        p.conflicts = [...(p.conflicts ?? []), ...(imp.conflicts ?? []).map((c) => openConflict(p, c, imp.run.id))];
-        imp.run.status = "committed"; imp.run.committedAt = nowTs(); save();
-        return json(200, imp.run);
-      }
-      if (sub === "issues" && !subId && method === "GET") {
-        const limit = Number(q.get("limit") ?? 50), cursor = Number(q.get("cursor") ?? 0);
-        const list = imp.issues.filter((i) => (!q.get("severity") || i.severity === q.get("severity")) && (!q.get("code") || i.code === q.get("code"))
-          && (q.get("resolved") == null || String(i.resolved) === q.get("resolved")));
-        const items = list.slice(cursor, cursor + limit);
-        return json(200, { items, nextCursor: cursor + limit < list.length ? String(cursor + limit) : null });
-      }
-      if (sub === "issues" && subId && action === "resolve" && method === "POST") {
-        const issue = imp.issues.find((i) => i.id === subId);
-        if (!issue) return fail(404, "NOT_FOUND", "No such issue.");
-        const b = body() as { action?: string; berthId?: string; vesselLengthFt?: number; reason?: string };
-        if (b.action === "dismiss") { issue.resolved = true; issue.resolution = "dismissed"; save(); return json(200, issue); }
-        if (b.action === "create_booking" && issue.row && b.berthId) {
-          const row = issue.row;
-          const vessel = row.occupantType === "vessel" ? findOrCreateVessel(p, row.title, b.vesselLengthFt ?? row.vesselLengthFt) : undefined;
-          if (vessel && b.vesselLengthFt != null && vessel.lengthFt == null) vessel.lengthFt = b.vesselLengthFt;
-          const input: BookingInput = { berthId: b.berthId, occupantType: row.occupantType, vesselId: vessel?.id ?? null, title: vessel ? null : row.title, startDate: row.startDate, endDate: row.endDate };
-          const r = rulesResponse(validate(input, p, { source: "import", asOfDate: settings.asOfDate })); if (r) return r;
-          p.bookings.push({ id: newId(), berthId: b.berthId, occupantType: row.occupantType, vesselId: vessel?.id ?? null, title: vessel?.name ?? row.title,
-            startDate: row.startDate, endDate: row.endDate, status: "confirmed", notes: null, source: "import", version: 1, createdAt: nowTs(), updatedAt: nowTs() });
-          issue.resolved = true; issue.resolution = "created"; save();
-          return json(200, issue);
-        }
-        return fail(400, "VALIDATION", "Resolve needs action dismiss, or create_booking with a berthId on an issue that has a row.");
-      }
     }
 
     // conflicts

@@ -19,6 +19,7 @@ import { useBookingEditor } from "@/components/booking/booking-editor";
 import { useBerths, useProjectCtx, useToday } from "@/components/project/project-context";
 import { clip } from "@/components/calendar/model";
 import { ErrorBox, PageHeader } from "./page-header";
+import { UsageTable } from "./usage-table";
 
 export function BerthsScreen() {
   const { pid, api } = useProjectCtx();
@@ -105,7 +106,7 @@ export function BerthsScreen() {
                   </tr>
                 );
               })}
-              {!list.isLoading && rows.length === 0 && <tr><td colSpan={6} className="px-3 py-10 text-center text-ink-muted">No berths yet. Add the first one, or upload a spreadsheet on the Import page.</td></tr>}
+              {!list.isLoading && rows.length === 0 && <tr><td colSpan={6} className="px-3 py-10 text-center text-ink-muted">No berths yet. Add the first one.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -132,6 +133,7 @@ export function BerthsScreen() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <UsageTable />
     </div>
   );
 }

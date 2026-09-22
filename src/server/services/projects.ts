@@ -29,7 +29,8 @@ export async function requireProject(q: Queryable, pid: string, opts: { write?: 
   const memo = opts.write ? undefined : requestProject.getStore();
   const p = memo?.pid === pid ? memo.row : (await q.query<ProjectRow>("SELECT * FROM project WHERE id = $1", [pid])).rows[0];
   if (!p) throw notFound("Project");
-  if (opts.write && p.template_key) throw new ApiErr("FORBIDDEN", "This is a read-only template project.");
+  // The sample is THE workspace (everyone edits it); only the defaults template is read-only.
+  if (opts.write && p.template_key && p.template_key !== "sample") throw new ApiErr("FORBIDDEN", "This is a read-only template project.");
   return p;
 }
 
@@ -124,9 +125,16 @@ export async function renameProject(pid: string, name: string): Promise<Project>
   return loadProject(q, pid);
 }
 
+/** The one shared workspace: the sample workbook, seeded once (npm run db:seed) and edited by everyone. */
+export async function workspaceId(): Promise<string | null> {
+  const { rows } = await getDb().query<{ id: string }>("SELECT id FROM project WHERE template_key = 'sample'");
+  return rows[0]?.id ?? null;
+}
+
 export async function deleteProject(pid: string): Promise<void> {
   const q = getDb();
-  await requireProject(q, pid, { write: true });
+  const p = await requireProject(q, pid, { write: true });
+  if (p.template_key) throw new ApiErr("FORBIDDEN", "The workspace can't be deleted. Re-seed it to start over.");
   await q.query("DELETE FROM project WHERE id = $1", [pid]);
 }
 

@@ -421,7 +421,7 @@ def read_tables(wb, sheets, known_berths=(), known_vessels=(), ledger=None, spec
                     issue("DUPLICATE_NAME", "warning", sh.title, f"{get_column_letter(name_col)}{r}", f"Berth \"{name}\" appears twice; the first one was kept.")
                     continue
                 order = cells.get(f["order"]) if "order" in f else None
-                berths.append({"name": name, "kind": kind, "lengthFt": length if kind == "berth" else None,
+                berths.append({"name": name, "lengthFt": length if kind == "berth" else None,
                                "sortOrder": order if isinstance(order, int) else len(berths) + 1})
             else:
                 name, inline, _ = split_name_length(raw, True)
@@ -441,12 +441,12 @@ def read_tables(wb, sheets, known_berths=(), known_vessels=(), ledger=None, spec
     have = {b["name"].lower() for b in berths}
     for name, length in berth_lengths.items():
         if name.lower() not in have and name.lower() not in known_b:
-            berths.append({"name": name, "kind": "berth", "lengthFt": length, "sortOrder": len(berths) + 1})
+            berths.append({"name": name, "lengthFt": length, "sortOrder": len(berths) + 1})
             have.add(name.lower())
     for r in rows:                                   # shared sections are known by name
         b = r["berthLabel"]
         if b and b.lower() not in have and b.lower() not in known_b and SECTION_RE.match(b):
-            berths.append({"name": b, "kind": "section", "lengthFt": None, "sortOrder": len(berths) + 1})
+            berths.append({"name": b, "lengthFt": None, "sortOrder": len(berths) + 1})
             have.add(b.lower())
     # vessels seen in stays that no list mentioned, with any length their cells carried
     for key, length in vessel_lengths.items():

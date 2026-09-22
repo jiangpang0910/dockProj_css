@@ -184,10 +184,23 @@ def parse_grid(wb, ledger=None):
                     if isinstance(v, str) and clean(v).upper() in WEEKDAY_LETTERS:
                         mark(ws.title, r, c, "weekday letter")
                     if (t := _text(v)):
-                        mark(ws.title, r, c, "HEADER_AREA_TEXT")
-                        issues.append(_issue("HEADER_AREA_TEXT", "info", ws.title, f"{get_column_letter(c)}{r}",
-                                             f"\"{t}\" sits in the {MONTHS[mon - 1].title()} {year} header rows, where day "
-                                             f"numbers and weekday letters go, so it was not read as a stay."))
+                        # A name pasted over the day numbers still has a day (its column) but no berth row: it is
+                        # kept as a stay with no berth, so it reaches Conflicts to be placed instead of vanishing.
+                        d = date_of(c)
+                        ref = f"{get_column_letter(c)}{r}"
+                        if d is not None:
+                            mark(ws.title, r, c, "HEADER_AREA_TEXT (kept, no berth)")
+                            cells.append({"sheet": ws.title, "cell": ref, "label": None, "berth": None, "text": t,
+                                          "start": d, "end": d, "fill": None, "note": None})
+                            issues.append(_issue("HEADER_AREA_TEXT", "info", ws.title, ref,
+                                                 f"\"{t}\" sits in the {MONTHS[mon - 1].title()} {year} header rows, where "
+                                                 f"day numbers go. Its day was read from its column ({d.isoformat()}), but "
+                                                 f"no berth row holds it, so it needs a berth."))
+                        else:
+                            mark(ws.title, r, c, "HEADER_AREA_TEXT")
+                            issues.append(_issue("HEADER_AREA_TEXT", "info", ws.title, ref,
+                                                 f"\"{t}\" sits in the {MONTHS[mon - 1].title()} {year} header rows, outside "
+                                                 f"the day columns, so it was not read as a stay."))
 
             section = None
             for r in range(first_data, end_row + 1):

@@ -3,18 +3,18 @@
 import { useEffect, useState } from "react";
 import { ThemeToggle } from "@/components/app/theme-toggle";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
-  CalendarDays, ChevronDown, Copy, Flag, FolderOpen, List, Pencil, Plus, Search, Ship, TriangleAlert, Upload, Waves,
+  CalendarDays, ChevronDown, Copy, Flag, List, Pencil, Plus, Search, Ship, TriangleAlert, Waves,
 } from "lucide-react";
 import { AccountBadge } from "@/components/app/account";
 import { Logo } from "@/components/app/logo";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import type { Session } from "@shared/contract";
@@ -33,7 +33,6 @@ const NAV = [
   { href: "/vessels", label: "Vessels", icon: Ship },
   { href: "/events", label: "Events", icon: Flag },
   { href: "/berths", label: "Berths", icon: Waves },
-  { href: "/import", label: "Import", icon: Upload },
   { href: "/conflicts", label: "Conflicts", icon: TriangleAlert },
 ];
 
@@ -126,14 +125,12 @@ function ProjectMenu() {
   const { pid } = useProjectCtx();
   const project = useProject();
   const qc = useQueryClient();
-  const router = useRouter();
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState("");
   const rename = useMutation({
     mutationFn: () => renameProject(pid, { name: name.trim() }),
     onSuccess: (p) => { qc.setQueryData(qk.project(pid), p); setRenaming(false); },
   });
-  const originLabel = { sample: "Sample", defaults: "Default fleet", empty: "Own data" } as const;
 
   return (
     <>
@@ -142,7 +139,6 @@ function ProjectMenu() {
           {project.data ? (
             <>
               <span className="truncate">{project.data.name}</span>
-              <span className="hidden rounded border px-1.5 text-[10px] font-normal tracking-wide text-ink-muted uppercase sm:inline">{originLabel[project.data.origin]}</span>
             </>
           ) : <span className="h-4 w-32 animate-pulse rounded bg-muted" />}
           <ChevronDown className="size-3.5 text-ink-muted" />
@@ -153,8 +149,6 @@ function ProjectMenu() {
             try { await navigator.clipboard.writeText(`${location.origin}/p/${pid}`); toast.success("Link copied. It opens for this login and for admins."); }
             catch { toast.error("Couldn't copy — the link is in your address bar."); }
           }}><Copy /> Copy link</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => router.push("/")}><FolderOpen /> Switch project</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <Dialog open={renaming} onOpenChange={setRenaming}>
