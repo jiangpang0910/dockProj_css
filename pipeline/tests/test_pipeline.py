@@ -18,7 +18,7 @@ from openpyxl.styles import PatternFill
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "pipeline"))
 import dockparse  # noqa: E402
-from dockparse import _merge, model  # noqa: E402
+from dockparse import _merge, _share_namesake_lengths, model  # noqa: E402
 
 SAMPLE = ROOT / "sample_data" / "Dock Schedule - Synthetic Sample.xlsx"
 ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -233,12 +233,46 @@ class SampleWorkbook(unittest.TestCase):
 
     def test_registry_lengths_attached(self):
         with_len = [v for v in self.d["vessels"] if v["lengthFt"] is not None]
-        self.assertEqual(len(with_len), 164)          # the registry size (defaults.json)
+        from_namesake = [v for v in with_len if (v["notes"] or "").endswith("(same name).")]
+        self.assertEqual(len(with_len) - len(from_namesake), 164)   # the registry size (defaults.json)
+        self.assertEqual(len(from_namesake), 46)                    # "F/V Deep Cove" takes "S/Y Deep Cove"'s length
         self.assertLessEqual(max(v["lengthFt"] for v in with_len), 410)
 
     def test_no_duplicate_stays(self):
         keys = [(r["berthLabel"], r["title"].upper(), r["startDate"]) for r in self.d["rows"]]
         self.assertEqual(len(keys), len(set(keys)))
+
+
+class NamesakeLengths(unittest.TestCase):
+    """Same name after the hull prefix → same length, filled in only where the file gives none."""
+
+    def v(self, name, length=None):
+        return {"name": name, "lengthFt": length, "draftFt": None, "operator": None, "notes": None}
+
+    def test_fills_missing_from_namesake(self):
+        vs = {"a": self.v("S/Y Deep Cove", 145), "b": self.v("F/V Deep Cove")}
+        _share_namesake_lengths(vs)
+        self.assertEqual(vs["b"]["lengthFt"], 145)
+        self.assertIn("S/Y Deep Cove", vs["b"]["notes"])
+
+    def test_never_overwrites_a_stated_length(self):
+        vs = {"a": self.v("S/Y Deep Cove", 145), "b": self.v("F/V Deep Cove", 60)}
+        _share_namesake_lengths(vs)
+        self.assertEqual((vs["a"]["lengthFt"], vs["b"]["lengthFt"]), (145, 60))
+
+    def test_larger_namesake_wins(self):
+        vs = {"a": self.v("R/V Tern", 60), "b": self.v("M/V Tern", 90), "c": self.v("Tug Tern")}
+        _share_namesake_lengths(vs)
+        self.assertEqual(vs["c"]["lengthFt"], 90)
+
+    def test_different_names_untouched(self):
+        vs = {"a": self.v("R/V Deep Cove", 145), "b": self.v("R/V Deep Reef")}
+        _share_namesake_lengths(vs)
+        self.assertIsNone(vs["b"]["lengthFt"])
+
+    def test_sample(self):
+        vs = {v["name"]: v for v in dockparse.run(SAMPLE.read_bytes(), use_model=False)["vessels"]}
+        self.assertEqual(vs["F/V Deep Cove"]["lengthFt"], vs["S/Y Deep Cove"]["lengthFt"])
 
 
 class ModelStep(unittest.TestCase):

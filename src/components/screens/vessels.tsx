@@ -1,9 +1,9 @@
 "use client";
 // Vessels (frontend.md §3.5): search, create/edit, delete, and a fast lane for legacy vessels with no length.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
 import type { Vessel, VesselInput } from "@shared/contract";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -17,11 +17,14 @@ import { useBookingEditor } from "@/components/booking/booking-editor";
 import { useProjectCtx, useVessels } from "@/components/project/project-context";
 import { ErrorBox, PageHeader } from "./page-header";
 
+const PAGE_SIZE = 25;
+
 export function VesselsScreen() {
   const { pid, api } = useProjectCtx();
   const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [unknownOnly, setUnknownOnly] = useState(false);
+  const [page, setPage] = useState(0);
   const list = useVessels(q.trim() || undefined, unknownOnly);
   const [editing, setEditing] = useState<Vessel | "new" | null>(null);
   const [deleting, setDeleting] = useState<Vessel | null>(null);
@@ -31,7 +34,16 @@ export function VesselsScreen() {
     mutationFn: (v: Vessel) => api.deleteVessel(v.id),
     onSuccess: (_x, v) => { invalidate(); toast.success(`Deleted ${v.name}.`); setDeleting(null); },
   });
-  const rows = list.data ?? [];
+  const all = list.data ?? [];
+  // Paged here, not in the API: the booking form and the schedule's vessel picker need the whole list anyway.
+  const pages = Math.max(1, Math.ceil(all.length / PAGE_SIZE));
+  const at = Math.min(page, pages - 1);            // a delete can empty the last page
+  const rows = all.slice(at * PAGE_SIZE, (at + 1) * PAGE_SIZE);
+  const table = useRef<HTMLDivElement>(null);
+  const goTo = (p: number) => {             // the pager sits under the table, so bring the new page's first row into view
+    setPage(p);
+    if (table.current && table.current.getBoundingClientRect().top < 0) table.current.scrollIntoView({ block: "start" });
+  };
 
   return (
     <div className="mx-auto max-w-5xl space-y-5 p-3 sm:p-5">
@@ -39,12 +51,12 @@ export function VesselsScreen() {
         <Button onClick={() => setEditing("new")}><Plus /> New vessel</Button>
       </PageHeader>
       <div className="flex flex-wrap items-center gap-3">
-        <Input placeholder="Search vessels" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-xs" aria-label="Search vessels" />
-        <label className="flex items-center gap-2 text-sm">Length unknown <Switch checked={unknownOnly} onCheckedChange={setUnknownOnly} /></label>
+        <Input placeholder="Search vessels" value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} className="max-w-xs" aria-label="Search vessels" />
+        <label className="flex items-center gap-2 text-sm">Length unknown <Switch checked={unknownOnly} onCheckedChange={(on) => { setUnknownOnly(on); setPage(0); }} /></label>
         {unknownOnly && <span className="text-xs text-ink-muted">Legacy vessels without a length can&rsquo;t be booked by hand. Type a length and press Enter; the next row gets focus.</span>}
       </div>
       {list.error ? <ErrorBox message={errorMessage(list.error)} onRetry={() => list.refetch()} /> : (
-        <div className="overflow-x-auto rounded-xl border bg-surface">
+        <div ref={table} className="scroll-mt-16 overflow-x-auto rounded-xl border bg-surface">
           <table className="w-full min-w-[640px] text-sm">
             <thead className="border-b text-left text-[11px] tracking-wide text-ink-muted uppercase">
               <tr><th className="px-3 py-2 font-medium">Name</th><th className="px-3 py-2 font-medium">LOA</th><th className="px-3 py-2 font-medium">Draft</th><th className="px-3 py-2 font-medium">Operator</th><th className="w-24 px-3 py-2" /></tr>
@@ -70,7 +82,20 @@ export function VesselsScreen() {
               )}
             </tbody>
           </table>
-          {rows.length > 0 && <p className="num border-t px-3 py-2 text-xs text-ink-muted">{rows.length} vessel{rows.length === 1 ? "" : "s"}</p>}
+          {all.length > 0 && (
+            <div className="flex items-center justify-between gap-3 border-t px-3 py-1.5">
+              <p className="num text-xs text-ink-muted">
+                {pages > 1 ? `${at * PAGE_SIZE + 1}–${at * PAGE_SIZE + rows.length} of ` : ""}{all.length} vessel{all.length === 1 ? "" : "s"}
+              </p>
+              {pages > 1 && (
+                <nav aria-label="Vessel pages" className="flex items-center gap-1">
+                  <Button variant="ghost" size="icon-sm" aria-label="Previous page" disabled={at === 0} onClick={() => goTo(at - 1)}><ChevronLeft /></Button>
+                  <span className="num min-w-14 text-center text-xs text-ink-muted" aria-live="polite">{at + 1} / {pages}</span>
+                  <Button variant="ghost" size="icon-sm" aria-label="Next page" disabled={at === pages - 1} onClick={() => goTo(at + 1)}><ChevronRight /></Button>
+                </nav>
+              )}
+            </div>
+          )}
         </div>
       )}
 

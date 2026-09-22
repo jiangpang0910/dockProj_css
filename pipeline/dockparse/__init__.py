@@ -96,8 +96,31 @@ def _run_grid(wb, use_model):
         if row["occupantType"] == "vessel":
             vessels.setdefault(vessel_key(row["title"]), {"name": row["title"], "lengthFt": None, "draftFt": None,
                                                           "operator": None, "notes": None})
+    _share_namesake_lengths(vessels)
     return _out("legacy_grid", n_sheets, n_cells, calls, berths, sorted(vessels.values(), key=lambda v: v["name"]),
                 rows, issues)
+
+
+def _share_namesake_lengths(vessels):
+    """Same name after the hull prefix ("S/Y Deep Cove" / "F/V Deep Cove") → the same boat for length purposes.
+    Only fills a missing length; a length the file states is never overwritten. If namesakes disagree, the larger
+    wins (a fit check on the larger value can never let a too-long vessel through)."""
+    known: dict = {}
+    for v in vessels.values():
+        if v["lengthFt"] is not None:
+            body = _name_body(v["name"])
+            if body not in known or v["lengthFt"] > known[body]["lengthFt"]:
+                known[body] = v
+    for v in vessels.values():
+        src = known.get(_name_body(v["name"])) if v["lengthFt"] is None else None
+        if src:
+            v["lengthFt"] = src["lengthFt"]
+            v["notes"] = f"Length taken from {src['name']} (same name)."
+
+
+def _name_body(name):
+    """'R/V Deep Cove' → 'DEEP COVE'."""
+    return vessel_key(name).partition(" ")[2]
 
 
 def _merge(rows):
