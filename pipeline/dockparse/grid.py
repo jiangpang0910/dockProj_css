@@ -47,8 +47,25 @@ def berth_from_label(label):
     return None
 
 
+def is_grid_sheet(ws) -> bool:
+    """A month name in column A with, within three rows of it, a row of weekday letters or of day numbers: the
+    calendar layout, whatever the sheet is called. Day-number rows can be mostly blank in the legacy files (the
+    parser votes on what's left), so a few numbers are enough; the weekday row is the surer sign.
+    (A table with a Month column has neither.)"""
+    for r in range(1, min(ws.max_row, 400) + 1):
+        v = ws.cell(r, 1).value
+        if isinstance(v, str) and MONTH_RE.match(v):
+            for rr in range(max(1, r - 2), min(r + 4, ws.max_row + 1)):   # header rows sit on, above or below the month
+                vals = [ws.cell(rr, c).value for c in range(2, min(ws.max_column, 40) + 1)]
+                days = sum(1 for x in vals if isinstance(x, int) and not isinstance(x, bool) and 1 <= x <= 31)
+                letters = sum(1 for x in vals if isinstance(x, str) and clean(x).upper() in WEEKDAY_LETTERS)
+                if days >= 5 or letters >= 15:
+                    return True
+    return False
+
+
 def is_grid(wb) -> bool:
-    return any(re.fullmatch(r"\d{4}", t) for t in wb.sheetnames)
+    return any(is_grid_sheet(ws) for ws in wb.worksheets)
 
 
 def fill_of(cell):
@@ -88,10 +105,10 @@ def parse_grid(wb, ledger=None):
     n_sheets = n_cells = 0
 
     for ws in wb.worksheets:
-        if not re.fullmatch(r"\d{4}", ws.title):
+        if not is_grid_sheet(ws):
             continue
         n_sheets += 1
-        sheet_year = int(ws.title)
+        sheet_year = int(ws.title) if re.fullmatch(r"\d{4}", ws.title.strip()) else None
         max_col = ws.max_column
 
         merged_of = {}
@@ -117,7 +134,12 @@ def parse_grid(wb, ledger=None):
 
             # Year: trust the first label only if it's within a year of the sheet; after that, go by sequence.
             if prev is None:
-                year = label_year if (label_year and abs(label_year - sheet_year) <= 1) else sheet_year
+                year = label_year if (label_year and (sheet_year is None or abs(label_year - sheet_year) <= 1)) else sheet_year
+                if year is None:                      # neither the sheet name nor the header says which year
+                    issues.append(_issue("SHEET_SKIPPED", "info", ws.title, f"A{hr}",
+                                         f"Sheet \"{ws.title}\" is a calendar grid but neither its name nor its month "
+                                         f"headers say which year it is, so it was skipped. Name the sheet after the year."))
+                    break
             else:
                 year = prev[0] + (1 if mon < prev[1] else 0)
             prev = (year, mon)

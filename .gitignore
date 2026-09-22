@@ -54,3 +54,6 @@ __pycache__/
 
 # test run logs
 /logs/
+
+# rendered diagrams
+/diagrams/

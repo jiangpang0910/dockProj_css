@@ -379,7 +379,7 @@ function CodeBadge({ code }: { code: string }) {
   return <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wide">{code}</span>;
 }
 function FormatBadge({ format }: { format: ImportRun["format"] }) {
-  return <span className="rounded border px-1.5 text-[10px] tracking-wide text-ink-muted uppercase">{format === "template" ? "our template" : "legacy grid"}</span>;
+  return <span className="rounded border px-1.5 text-[10px] tracking-wide text-ink-muted uppercase">{format === "template" ? "our template" : format === "table" ? "free-form table" : "legacy grid"}</span>;
 }
 function StatusBadge({ status }: { status: ImportRun["status"] }) {
   const s = { previewed: "bg-brass-soft text-ink", committed: "bg-ok-soft text-ok", discarded: "bg-muted text-ink-muted" }[status];

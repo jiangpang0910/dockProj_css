@@ -163,10 +163,12 @@ export interface AvailabilityResult {
 }
 
 // ───────────── import (spreadsheet upload) ─────────────
-export type ImportFormat = "template" | "legacy_grid";
+export type ImportFormat = "template" | "legacy_grid" | "table";
 // template    = our dock-template.xlsx: sheets Berths, Vessels, Bookings (optional). Creates berths too.
 // legacy_grid = the original year-per-sheet grid. Berth labels like "Name - 410'" create the berth if missing.
-// Detected from the sheet names; the user doesn't choose.
+// table       = any other sheet with a header row and one record per row (or a CSV): columns are matched by their
+//               wording and their values; the mapping is reported as a COLUMN_MAPPING issue.
+// Detected from what each sheet contains; the user doesn't choose.
 export type ImportStatus = "previewed" | "committed" | "discarded";
 // Issues = "we couldn't read this cell properly". Rows that read fine but can't be PLACED (taken berth, too long,
 // no berth…) are Conflicts instead (below), not issues.
@@ -179,7 +181,12 @@ export type IssueCode =
   | "DUPLICATE_NAME"                     // same berth/vessel name twice in the file → warning, first kept
   | "MODEL_CLASSIFIED"                   // info: regex couldn't classify the cell, the language model did. Review it
   | "HEADER_AREA_TEXT"                   // info: text in a month's header rows (where day numbers go), not read as a stay
-  | "UNLABELED_BAR";                     // info: a coloured bar with no name that doesn't continue any stay
+  | "UNLABELED_BAR"                      // info: a coloured bar with no name that doesn't continue any stay
+  | "COLUMN_MAPPING"                     // info: how a free-form sheet's columns were read ("B (Boat) → vessel, …")
+  | "UNMAPPED_COLUMN"                    // info: a column with data that nothing explained, so it was left out
+  | "SHEET_SKIPPED"                      // info: a sheet with nothing recognisable in it
+  | "AMBIGUOUS_VALUE"                    // warning/info: a cell read one way when another was possible ("… 46": name or length?)
+  | "MODEL_LAYOUT";                      // info: the language model proposed the sheet's column layout. Check it
 export interface ImportedRow {
   berthLabel: string | null;       // raw berth label / Berth column, null for unlabeled overflow rows
   occupantType: OccupantType;

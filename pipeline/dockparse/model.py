@@ -27,17 +27,63 @@ Cells:
 """
 
 
+LAYOUT_PROMPT = """These are the first rows of spreadsheet sheets from a marine facility's dock schedule that our
+automatic reader could not map to columns. For each sheet, say which row is the header row (1-based; null if the
+table has no header row) and which column letter holds which field. Fields: berth, vessel, type, start, end,
+dates (a single column holding a date range), notes, length, draft, operator, order.
+A sheet is worth mapping only if it is a table of stays (vessel + dates, usually a berth), a list of vessels
+(name + length) or a list of berths (name + length). Omit sheets that are none of these.
+Reply with ONLY a JSON object: {"<sheet title>": {"headerRow": <number or null>, "columns": {"<letter>": "<field>"}}}.
+Never name a column that isn't shown, and never guess values: you only say where things are.
+
+Sheets:
+"""
+
+
 def label(texts, api_key=None):
     """→ ({text: label}, calls_made). Only labels in LABELS other than 'unknown' are returned."""
-    api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
     texts = sorted(set(texts))[:MAX_STRINGS]
-    if not api_key or not texts:
+    parsed, calls = _ask(PROMPT + json.dumps(texts, ensure_ascii=False), api_key) if texts else (None, 0)
+    if not parsed:
+        return {}, calls
+    return {t: l for t, l in parsed.items() if t in texts and l in LABELS and l != "unknown"}, calls
+
+
+def propose_layout(profiles, api_key=None):
+    """profiles: [{title, rows: [[cell text…]…], fields}] → ({title: {"headerRow": int|None, "columns": {col_index: field}}},
+    calls_made). The model only says WHERE things are; table.py then reads the cells itself. Anything malformed
+    is dropped, so a bad answer means a sheet stays skipped, never a wrong booking."""
+    from .table import FIELDS
+    if not profiles:
         return {}, 0
+    parsed, calls = _ask(LAYOUT_PROMPT + json.dumps(profiles, ensure_ascii=False), api_key)
+    out = {}
+    for title, spec in (parsed or {}).items():
+        if not isinstance(spec, dict) or not isinstance(spec.get("columns"), dict):
+            continue
+        cols = {}
+        for letter, field in spec["columns"].items():
+            if isinstance(letter, str) and letter.isalpha() and field in FIELDS and field not in cols.values():
+                idx = 0
+                for ch in letter.upper():
+                    idx = idx * 26 + (ord(ch) - 64)
+                cols[idx] = field
+        hr = spec.get("headerRow")
+        if cols and (hr is None or (isinstance(hr, int) and hr >= 1)):
+            out[title] = {"headerRow": hr, "columns": cols}
+    return out, calls
+
+
+def _ask(prompt, api_key=None):
+    """One request, strict JSON back → (parsed dict | None, calls_made). No key: (None, 0)."""
+    api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return None, 0
     body = json.dumps({
         "model": MODEL,
         "max_tokens": 4096,
         "temperature": 0,
-        "messages": [{"role": "user", "content": PROMPT + json.dumps(texts, ensure_ascii=False)}],
+        "messages": [{"role": "user", "content": prompt}],
     }).encode()
     req = urllib.request.Request("https://api.anthropic.com/v1/messages", data=body, method="POST", headers={
         "x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"})
@@ -47,6 +93,6 @@ def label(texts, api_key=None):
         text = "".join(b.get("text", "") for b in reply.get("content", []) if b.get("type") == "text")
         start, end = text.find("{"), text.rfind("}")
         parsed = json.loads(text[start:end + 1])
+        return (parsed if isinstance(parsed, dict) else None), 1
     except Exception:
-        return {}, 1
-    return {t: l for t, l in parsed.items() if t in texts and l in LABELS and l != "unknown"}, 1
+        return None, 1

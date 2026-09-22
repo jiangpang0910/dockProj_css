@@ -8,17 +8,13 @@ disposition is a hole in the parser — the pipeline tests fail on any.
 """
 import collections
 import io
-import re
 import warnings
 
 import openpyxl
 from openpyxl.cell.cell import MergedCell
 
-from .grid import fill_of, parse_grid
-from .registry import read_registry
-
-REFERENCE_SHEETS = {"Tours": "Tours log (reference only, not imported)",
-                    "8YR Dock Summary": "summary table (reference only, not imported)"}
+from . import REFERENCE_SHEETS, _parse
+from .grid import fill_of, is_grid_sheet
 
 
 def audit(data: bytes) -> dict:
@@ -26,11 +22,10 @@ def audit(data: bytes) -> dict:
         warnings.simplefilter("ignore")
         wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
     ledger: dict = {}
-    parse_grid(wb, ledger)
-    read_registry(wb, ledger)
+    _parse(wb, use_model=False, ledger=ledger)   # every reader marks the cells it touched
     counts, holes = collections.Counter(), []
     for ws in wb.worksheets:
-        year_sheet = bool(re.fullmatch(r"\d{4}", ws.title))
+        year_sheet = is_grid_sheet(ws)
         for row in ws.iter_rows():
             for c in row:
                 if isinstance(c, MergedCell):

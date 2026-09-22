@@ -1,0 +1,12 @@
+# What never belongs in an upload to Vercel. The CLI does not read .gitignore, so local build caches
+# (.next*/dev/cache holds files over Vercel's 100 MB limit) have to be listed here.
+.git
+node_modules
+.next
+.next-*
+.venv
+__pycache__
+.env*
+logs
+cpsat/runs
+cpsat/logs

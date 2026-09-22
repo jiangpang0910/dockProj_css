@@ -93,7 +93,7 @@ const issueRow = (r: ParsedRow): IssueRow => ({
 
 export async function stage({ parsed, window, existing }: StageInput): Promise<StagePlan> {
   if (!parsed.format) throw new Error("stage() needs a recognised format");
-  const template = parsed.format === "template";
+  const template = parsed.format !== "legacy_grid";   // template and free-form tables both list vessels up front
   const touches = (r: { startDate: ISODate; endDate: ISODate }) =>
     !window || (r.startDate <= window.to && r.endDate >= window.from);
 

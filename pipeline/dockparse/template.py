@@ -27,6 +27,19 @@ def is_template(wb) -> bool:
     return any(t.strip().lower() in HEADERS for t in wb.sheetnames)
 
 
+def template_sheets(wb):
+    """Titles of the sheets that ARE our template: a template sheet name and the exact header row it ships with.
+    A template-named sheet whose header differs is left to the free-form table reader."""
+    out = []
+    for ws in wb.worksheets:
+        want = HEADERS.get(ws.title.strip().lower())
+        if want:
+            header = [str(v).strip().lower() if v is not None else "" for v in next(ws.iter_rows(min_row=1, max_row=1, values_only=True), ())]
+            if header[:len(want)] == want:
+                out.append(ws.title)
+    return out
+
+
 def _sheet(wb, name):
     for t in wb.sheetnames:
         if t.strip().lower() == name:
@@ -67,8 +80,9 @@ def _date(v):
     return None
 
 
-def parse_template(wb):
-    """→ (berths, vessels, rows, issues, n_sheets, n_cells) already in ParsedWorkbook shape."""
+def parse_template(wb, only=None):
+    """→ (berths, vessels, rows, issues, n_sheets, n_cells) already in ParsedWorkbook shape.
+    only: sheet titles to read (default: every template-named sheet)."""
     issues, berths, vessels, rows = [], [], [], []
     n_sheets = n_cells = 0
     berth_names, vessel_keys = set(), {}
@@ -78,7 +92,7 @@ def parse_template(wb):
 
     def records(name):
         ws = _sheet(wb, name)
-        if ws is None:
+        if ws is None or (only is not None and ws.title not in only):
             return
         nonlocal n_sheets, n_cells
         n_sheets += 1

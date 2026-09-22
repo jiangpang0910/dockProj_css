@@ -44,6 +44,7 @@ export const ParsedIssueSchema = z.object({
     "NO_BERTH", "OUTSIDE_MONTH_COLUMNS", "UNPARSEABLE_CELL", "HEADER_YEAR_MISMATCH", "DUPLICATE_CARRYOVER",
     "ANNOTATION_SKIPPED", "UNKNOWN_FORMAT", "TEMPLATE_BAD_HEADER", "INVALID_VALUE", "DUPLICATE_NAME", "MODEL_CLASSIFIED",
     "HEADER_AREA_TEXT", "UNLABELED_BAR",
+    "COLUMN_MAPPING", "UNMAPPED_COLUMN", "SHEET_SKIPPED", "AMBIGUOUS_VALUE", "MODEL_LAYOUT",   // free-form tables
   ]),
   severity: z.enum(["error", "warning", "info"]),
   sheet: z.string(),
@@ -54,7 +55,7 @@ export const ParsedIssueSchema = z.object({
 
 export const ParsedWorkbookSchema = z.object({
   version: z.literal(1),
-  format: z.enum(["template", "legacy_grid"]).nullable(),   // null = UNKNOWN_FORMAT
+  format: z.enum(["template", "legacy_grid", "table"]).nullable(),   // null = UNKNOWN_FORMAT
   stats: z.object({ sheets: z.number().int(), cells: z.number().int(), modelCalls: z.number().int() }),
   berths: z.array(ParsedBerthSchema),
   vessels: z.array(ParsedVesselSchema),

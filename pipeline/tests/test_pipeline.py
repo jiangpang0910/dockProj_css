@@ -24,13 +24,14 @@ SAMPLE = ROOT / "sample_data" / "Dock Schedule - Synthetic Sample.xlsx"
 ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ISSUE_CODES = {"NO_BERTH", "OUTSIDE_MONTH_COLUMNS", "UNPARSEABLE_CELL", "HEADER_YEAR_MISMATCH", "DUPLICATE_CARRYOVER",
                "ANNOTATION_SKIPPED", "UNKNOWN_FORMAT", "TEMPLATE_BAD_HEADER", "INVALID_VALUE", "DUPLICATE_NAME",
-               "MODEL_CLASSIFIED", "HEADER_AREA_TEXT", "UNLABELED_BAR"}
+               "MODEL_CLASSIFIED", "HEADER_AREA_TEXT", "UNLABELED_BAR",
+               "COLUMN_MAPPING", "UNMAPPED_COLUMN", "SHEET_SKIPPED", "AMBIGUOUS_VALUE", "MODEL_LAYOUT"}
 
 
 def check_shape(t, d):
     """The same shape shared/pipeline.ts (ParsedWorkbookSchema) enforces on the TS side."""
     t.assertEqual(d["version"], 1)
-    t.assertIn(d["format"], ("template", "legacy_grid", None))
+    t.assertIn(d["format"], ("template", "legacy_grid", "table", None))
     t.assertEqual(set(d["stats"]), {"sheets", "cells", "modelCalls"})
     for b in d["berths"]:
         t.assertEqual(set(b), {"name", "kind", "lengthFt", "sortOrder"})
@@ -361,14 +362,31 @@ class Template(unittest.TestCase):
         no_berth = next(i for i in self.d["issues"] if i["code"] == "NO_BERTH")
         self.assertEqual(no_berth["row"]["title"], "Nowhere")
 
-    def test_bad_header_skips_only_that_sheet(self):
+    def test_template_sheet_with_other_headers_is_read_by_meaning(self):
+        # "LOA" isn't our header, but it means length: the free-form reader takes that sheet, the rest stay strict
         def build(wb):
             self.build(wb)
             ws = wb["Vessels"]
             ws["B1"] = "LOA"
-        d = dockparse.run(xlsx(build))
-        self.assertEqual([i["sheet"] for i in d["issues"] if i["code"] == "TEMPLATE_BAD_HEADER"], ["Vessels"])
+        d = dockparse.run(xlsx(build), use_model=False)
+        self.assertEqual(d["format"], "table")
+        self.assertEqual([i["sheet"] for i in d["issues"] if i["code"] == "TEMPLATE_BAD_HEADER"], [])
+        self.assertEqual([i["sheet"] for i in d["issues"] if i["code"] == "COLUMN_MAPPING"], ["Vessels"])
+        self.assertEqual({v["name"]: v["lengthFt"] for v in d["vessels"]}["R/V Sea Lion"], 120)
         self.assertEqual(len(d["berths"]), 2)
+
+    def test_template_sheet_nobody_can_read_is_an_error(self):
+        # unknown headers AND nothing in the values to go on (an empty sheet): that is a bad template sheet
+        def build(wb):
+            self.build(wb)
+            ws = wb["Vessels"]
+            ws.delete_rows(2, ws.max_row)
+            for c in "ABCDE":
+                ws[f"{c}1"] = f"Column {c}"
+        d = dockparse.run(xlsx(build), use_model=False)
+        bad = [i for i in d["issues"] if i["code"] == "TEMPLATE_BAD_HEADER"]
+        self.assertEqual([i["sheet"] for i in bad], ["Vessels"])
+        self.assertIn("Name | Length (Ft)", bad[0]["message"])
 
 
 class Edges(unittest.TestCase):
