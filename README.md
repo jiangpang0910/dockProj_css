@@ -19,14 +19,15 @@ audited against the same rules.
 
 ## How a visitor starts
 
-The demo is live, so there's nothing to install. The landing page offers **Open the sample**, which gives you your own
-copy of 23 years of the WHOI schedule to poke at, or **New project**: start from the default fleet, empty, or by uploading a
-spreadsheet (our template, or the original workbook). Each project is private to whoever has its link.
+The demo is live, so there's nothing to install. Sign in and you land in **the workspace**: 23 years of the WHOI
+schedule, loaded from the workbook and viewed as of 1 Jul 2019. There is one of it, and everyone shares it — what you
+book, the next person sees.
 
 ## Two ways in
 
 1. **One at a time** — the everyday path. Create a booking, get an instant yes or a precise no. This is the product.
-2. **Bulk upload** — an `.xlsx` in our template (berths, vessels, bookings) or the legacy grid. See what's wrong with it, fix or dismiss each problem. This is the onboarding.
+2. **The workbook** — `npm run db:seed` reads all 23 sheets through the same rules, and everything it couldn't place
+   as written lands on the Conflicts screen to place or dismiss, by hand or with the solver.
 
 ## What "done" looks like
 
@@ -68,14 +69,14 @@ so the effort goes into **correctness and data quality** instead. If the scale w
 
 **What is "today"?** The data ends in 2019, but the real date is 2026. So "today" is a setting
 per project: it defaults to the real date and can be overridden (the sample opens as of `2019-07-01`) to demo a
-forward-looking schedule on top of the imported past. It moves the default view and the "today" marker and
+forward-looking schedule on top of the loaded past. It moves the default view and the "today" marker and
 produces an `IN_PAST` *warning*; it never changes which bookings are valid.
 
 ## Design in five sentences
 
 1. A **booking** is an inclusive date range on one berth, held by a vessel, event, or closure.
 2. Three rules are enforced at write time *and* by the database itself: no overlap, vessel fits, one place at a time.
-3. Legacy rows that break a rule are **never inserted** — they become import issues you resolve or dismiss, so the bookings table is always valid.
+3. Workbook rows that break a rule are **never inserted** — they become conflicts you resolve or dismiss, so the bookings table is always valid.
 4. Every rejection carries a machine-readable violation code and the ids of the bookings in the way.
 5. A dry-run `validate` endpoint lets the UI show conflicts *before* you press save.
 
@@ -86,7 +87,7 @@ README.md            this page
 manual.md            operations the system must support (what a user can do, and the rules)
 database.md          schema walkthrough, rules in the DB, BCNF, query costs, why Postgres
 infrastructure.md    hosting (Vercel + Neon), projects/sample flow, deploy, cleanup, runbook
-backend.md           services, REST API, import pipeline
+backend.md           services, REST API, ingestion pipeline
 shared/contract.ts   THE API contract: types + zod request schemas, imported by both sides
 frontend.md          the front-end prompt: design direction + screens + endpoint usage
 app/, src/           the Next.js app: pages + /api route handlers (layout: backend.md §1)
@@ -106,7 +107,7 @@ docs/                initial_thoughts.md (original notes, kept for reference)
 | API | Next.js route handlers + zod | same app as the UI → one deploy, no CORS; request schemas shared with the UI via `shared/contract.ts` |
 | DB | Postgres (Neon, free tier) | hosted live on Vercel, where disk is ephemeral; `EXCLUDE` constraints enforce no-overlap in the DB |
 | Hosting | Vercel | live demo for the reviewer, nothing to install |
-| Import | `exceljs` | reads merged cells |
+| Workbook | `exceljs` | reads merged cells |
 | Frontend | Next.js + Tailwind + shadcn/ui + Motion | shadcn/ui covers forms, tables, dialogs; the schedule grid is custom |
 
 ## Open decisions — yours to confirm
@@ -126,11 +127,11 @@ Each has a default I used in the docs. Change the default here first, then the d
 | D9 | SQLite vs Postgres | **Postgres (Neon)**: live hosting; `EXCLUDE` makes no-overlap declarative |
 | D10 | Booking in the past (before "today")? | Allowed, with an `IN_PAST` warning — not blocked |
 | D11 | Concurrent users? | **One user for v1.** Later: the DB constraint serializes writes (first commit wins, no app queue); rejections go to a log (backend.md §8) |
-| D12 | How far ahead can you book? | Manual bookings, measured from "today": **> 2 years → `FAR_FUTURE` warning** (catches typos like 2037 for 2027, still saveable); **> 5 years → `BEYOND_HORIZON` error** (no squatting berths for a decade; keeps R6 length edits from being frozen by far-off bookings). Imports exempt. Sanity bounds 1997-01-01 … 2050-12-31 for everything |
-| D13 | Multiple workspaces? | **Projects**, owned by a **handed-out login** (username + password, no sign-up; infrastructure.md §5). Everyone on one login shares its projects; admins see all. "Open the sample" clones a read-only template once per login. Idle 14 days → deleted |
-| D14 | Upload format for your own data? | **Our template** (Berths / Vessels / Bookings sheets) *and* the legacy grid, auto-detected |
-| D15 | Who parses uploads? | **Python pipeline** (`pipeline/`), deployed as its own Vercel function. Regex first; Claude Haiku only for cells regex can't place (1 unique string in the sample), optional. TS keeps the planning window and the rules |
-| D16 | What does an upload bring in? | Only bookings touching the **planning window**: project "today" → `planTo` (default +5y). Violations are flagged as issues, never a wholesale reject |
+| D12 | How far ahead can you book? | Manual bookings, measured from "today": **> 2 years → `FAR_FUTURE` warning** (catches typos like 2037 for 2027, still saveable); **> 5 years → `BEYOND_HORIZON` error** (no squatting berths for a decade; keeps R6 length edits from being frozen by far-off bookings). The seed is exempt. Sanity bounds 1997-01-01 … 2050-12-31 for everything |
+| D13 | Multiple workspaces? | **No — one.** The workbook is seeded once and everyone signed in edits it (handed-out logins, username + password, no sign-up; infrastructure.md §5). Nothing creates, clones or deletes a workspace from the app |
+| D14 | Where does the data come from? | The original year-per-sheet workbook, read by `npm run db:seed`. There is no upload: ingestion is a one-time seed, not a feature |
+| D15 | Who parses the workbook? | **Python pipeline** (`pipeline/`), deployed as its own Vercel function. Regex first; Claude Haiku only for cells regex can't place (1 unique string in the sample), optional. TS keeps the planning window and the rules |
+| D16 | What does the seed bring in? | Bookings touching the **planning window**, plus the workbook's tours and its 8-year usage summary. Violations become conflicts, never a wholesale reject |
 
 ## Status
 
@@ -143,7 +144,7 @@ Each has a default I used in the docs. Change the default here first, then the d
 - [ ] Backend: rules + services + API
 - [x] `rules.ts` + dates (29 tests)
 - [x] Python parse pipeline (`pipeline/`, 18 tests; sample → 2,047 rows, 8 berths, 641 vessels)
-- [ ] Importer staging in TS (window + rules), API routes
+- [x] Seed staging in TS (window + rules)
 - [ ] Frontend
 - [ ] Tests for the rules (adjacent / same-day / contained / identical ranges)
 - [ ] How-to-run section (fill in once there is something to run)

@@ -8,14 +8,14 @@ here, it isn't in scope.
 
 | Term | Meaning |
 |---|---|
-| **Project** | A workspace: its own berths, vessels, bookings, imports and "today". Everything below happens inside one project. |
+| **Workspace** | The one shared schedule: its berths, vessels, bookings, tours and "today". Everything below happens inside it. |
 | **Berth** | A named mooring with a fixed length in feet (e.g. North Pier West, 410′). Holds one occupant per day. |
 | **Section** | A shared area with no defined length (small-craft slips, finger piers). Many boats at once. |
 | **Vessel** | A boat with a name and a length overall (LOA). |
 | **Booking** | A berth held for an inclusive range of days by a vessel, an event, or a closure. |
 | **Event** | A non-vessel use that takes a berth (community sail day, campus event). |
 | **Closure** | A berth made unusable (maintenance, repair, crane access). |
-| **Import issue** | A legacy spreadsheet row that could not be turned into a valid booking automatically. |
+| **Conflict** | A workbook row the seed could not turn into a valid booking, kept for someone to place or dismiss. |
 
 ## Rules (invariants)
 
@@ -30,11 +30,11 @@ The system must make it impossible to save a booking that breaks **R1–R5**. R6
 | **R5** | A berth marked inactive takes no new bookings | all | `BERTH_INACTIVE` |
 | **R6** | Changing a berth's or vessel's length may not break an existing confirmed booking | reference-data edits | `VESSEL_TOO_LONG` / 409 |
 
-Also: a vessel with no recorded length can't be booked by hand (`VESSEL_LENGTH_UNKNOWN`); legacy imports are exempt.
+Also: a vessel with no recorded length can't be booked by hand (`VESSEL_LENGTH_UNKNOWN`); rows loaded by the seed are exempt.
 
 **Warnings, not rules.** A booking whose whole range is before "today" returns `IN_PAST` (D10, see OP-12). A manual
 booking ending more than 2 years after "today" returns `FAR_FUTURE` ("typo?"). Warnings never block a save.
-**Horizon (D12).** A manual booking ending more than 5 years after "today" is refused: `BEYOND_HORIZON`. Imports are exempt.
+**Horizon (D12).** A manual booking ending more than 5 years after "today" is refused: `BEYOND_HORIZON`. The seed is exempt.
 
 **Date semantics (D1).** Dates are calendar days, no times, no time zones. Both ends are inclusive:
 a booking 5–9 March occupies the 5th, 6th, 7th, 8th and 9th. A vessel departing on the 9th
@@ -47,17 +47,13 @@ therefore blocks another arriving on the 9th. Two ranges overlap exactly when ne
 Each operation lists: what you give it → what comes back → how it can fail.
 Paths from OP-01 on are relative to `/api/projects/:pid`.
 
-### Projects
+### The workspace
 
-**OP-00 Open or create a project.** The landing page offers:
-- **Open the sample.** You get your *own copy* of the sample: the default fleet plus 23 years of imported history, viewed
-  as of 1 Jul 2019. Nothing you do affects anyone else's copy.
-- **New project**, starting from the **default fleet** (6 berths, 2 sections, 164 vessels, no bookings), **empty**, or
-  **empty + upload a spreadsheet** (our template, or the original workbook; see OP-09).
-- **Your projects**, the ones this browser has opened.
-
-There is no login: a project's link is its key. Projects left unopened for 14 days are deleted.
-→ `GET/POST /api/projects`, `GET/PATCH/DELETE /api/projects/:pid`.
+**OP-00 Open the workspace.** There is one: the WHOI dock, loaded from the workbook when the database is seeded and
+viewed as of 1 Jul 2019. Signing in and going to `/` opens it. Everyone works in the same schedule — what you book,
+the next person sees. It can be renamed, and its link can be copied, but it cannot be deleted or duplicated from the
+app; re-seeding the database (`npm run db:seed -- --force`) is what resets it.
+→ `GET /api/projects`, `GET/PATCH /api/projects/:pid`.
 
 ### Looking
 
@@ -98,22 +94,7 @@ otherwise deactivate it. → `POST/PATCH/DELETE /berths`.
 with lengths; see backend.md §9). A project started from it gets its own copy: everything in OP-07/OP-08 applies, and
 nothing you change touches another project.
 
-### Spreadsheet upload
-
-**OP-09 Import a spreadsheet.** Upload an `.xlsx` in either format; the system tells them apart by sheet names:
-- **Our template** (`dock-template.xlsx`, downloadable from the import page): sheets *Berths*, *Vessels*, *Bookings*,
-  one record per row. Any sheet may be left out. This is how you set up your own fleet.
-- **The original workbook**: one sheet per year, the grid layout. Berth labels like `North Pier West - 410'` create
-  the berth if the project doesn't have it.
-
-The system parses the file, **stages** the result, and shows a summary: berths, vessels and bookings found, and issues by severity. Nothing is written to the live schedule until you
-**commit**; you can discard the preview. Commit inserts every row that satisfies R1–R5 and leaves the rest as issues. → `POST /imports`, `POST /imports/:id/commit`, `DELETE /imports/:id`.
-
-**OP-10 Triage import issues.** For each issue that has a usable row:
-- *Create booking* — you choose the berth (with the availability list to help); it goes through the normal rules. Or
-- *Dismiss* — with an optional reason (e.g. "historical, not actionable").
-
-Info-level issues (auto-fixed year labels, skipped notes) need no action. → `GET /imports/:id/issues`, `POST .../resolve`.
+### Checking
 
 **OP-11 Audit.** Re-check every rule against every confirmed booking and report violations.
 On a healthy database this is empty — it is the proof, and the safety net if data was edited outside the app. → `GET /audit`.
@@ -124,24 +105,21 @@ On a healthy database this is empty — it is the proof, and the safety net if d
 as of 1 Jul 2019). By default it is the real date; you can override it (e.g. `2020-01-01`) or clear the override. It sets the default schedule window,
 the today marker, and which bookings get the `IN_PAST` warning. It never changes what is valid. → `GET/PUT /settings`.
 
-## Import issue types
+## What the seed reports
 
-| Code | Meaning | Needs action? |
-|---|---|---|
-| `NO_BERTH` | Row sits on an unlabeled overflow line; berth unknown | Yes — choose a berth, or dismiss |
-| `OVERLAP` | Overlaps a booking that was already accepted (the earlier-starting one wins) | Yes |
-| `VESSEL_TOO_LONG` | Vessel is longer than that berth | Yes |
-| `VESSEL_DOUBLE_BERTHED` | Same vessel already booked elsewhere those days | Yes |
-| `OUTSIDE_MONTH_COLUMNS` | Cell sits before day 1 of its month block (carry-over from previous month) | Review |
-| `UNPARSEABLE_CELL` | Couldn't place the cell | Review |
-| `HEADER_YEAR_MISMATCH` | Month header year contradicted the weekday letters; year inferred | No (info) |
-| `DUPLICATE_CARRYOVER` | December repeated at the top of the next year's sheet; duplicate dropped | No (info) |
-| `DUPLICATE_EXISTING` | Already in the project: an identical booking, or a berth/vessel of the same name (re-importing is safe); skipped | No (info) |
-| `ANNOTATION_SKIPPED` | Operational note ("ETA 1200", "Fuel truck") is not a booking | No (info) |
-| `UNKNOWN_FORMAT` | Neither our template nor the year-per-sheet grid; nothing imported | Yes: use the template |
-| `TEMPLATE_BAD_HEADER` | A template sheet's header row doesn't match; that sheet skipped | Yes: fix the header, re-upload |
-| `INVALID_VALUE` | A template cell is wrong (kind, length, type, date); row skipped | Yes: fix, re-upload |
-| `DUPLICATE_NAME` | Same berth/vessel name twice in the file; first kept | Review |
+Loading the workbook is not lossless, and the parts it can't turn into a valid booking are kept, not silently dropped.
+Four of them become **conflicts** you work through on the Conflicts screen:
+
+| Code | Meaning |
+|---|---|
+| `NO_BERTH` | The row sits on an unlabeled overflow line, so its berth is unknown |
+| `OVERLAP` | It overlaps a booking already accepted (the earlier-starting one wins) |
+| `VESSEL_TOO_LONG` | The vessel is longer than that berth |
+| `VESSEL_DOUBLE_BERTHED` | The same vessel is already booked elsewhere on those days |
+
+The rest are reported by the parser and recorded against the run — carry-over months dropped, year labels corrected
+from the weekday letters, operational notes ("ETA 1200", "Fuel truck") recognised as not-bookings. They need no
+decision from anyone, and the seed prints their counts.
 
 ## Worked examples (each should become a test)
 

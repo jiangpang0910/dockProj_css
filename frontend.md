@@ -56,12 +56,11 @@ Check contrast: text ≥ 4.5:1; never encode meaning by color alone (bars also c
 
 **Type:** `Inter` for UI; `JetBrains Mono` (or `tabular-nums` on Inter) for every date, length, and count, so columns line up. Lengths render as `410′` (prime, not apostrophe).
 
-**Layout:** left rail (Schedule · Bookings · Vessels · Berths · Import · Audit), top bar with the **"today"** control (§3.9) and a global "New booking" button (`N` shortcut). Responsive down to 400px: the grid scrolls horizontally inside its own container; the page never does.
+**Layout:** left rail (Schedule · Availability · Bookings · Vessels · Events · Berths · Conflicts), top bar with the **"today"** control (§3.9) and a global "New booking" button (`N` shortcut). Responsive down to 400px: the grid scrolls horizontally inside its own container; the page never does.
 
 **Where to spend the polish** (all achievable with shadcn primitives + Motion; don't force any):
 
 - The **"today" chip** in the top bar — a pill (shadcn `Popover`) that opens the date override.
-- **Import summary** — a count-up reveal of bookings / vessels / issues (Motion).
 - **Hover detail** on a booking bar — a shadcn `HoverCard` (vessel, LOA vs berth length, dates, notes).
 - **Empty states** (no bookings in range, no issues) — a short line of copy and one next action.
 
@@ -69,39 +68,15 @@ Keep forms, tables, and dialogs plain shadcn — those need to be boring and dep
 
 ## 3. Screens
 
-Routes: `/` landing · `/new` new project · `/p/[projectId]` schedule · `/p/[projectId]/{availability,bookings,vessels,berths,import,audit}`.
-The top bar inside a project shows the project name (click → rename / copy link / switch project) and the "today" chip (3.9).
+Routes: `/` (redirects into the workspace) · `/p/[projectId]` schedule · `/p/[projectId]/{availability,bookings,vessels,berths,events,conflicts}`.
+The top bar shows the workspace name (click → rename / copy link) and the "today" chip (3.9).
 
-### 3.0a Landing (`/`)
+### 3.0 Landing (`/`)
 
-The first impression, so it gets the most design care. It's static, so it renders instantly even while the DB is waking up.
-- **One sentence** on what this is, over a quiet chart-table visual (a few berth rows with bars; not a stock photo).
-- **Primary action: "Open the sample"** → `POST /api/projects {name:"Sample — WHOI dock", start:"sample"}` → go to
-  `/p/<id>`. Show progress on the button (a clone takes ~1 s, plus up to ~1 s if the DB was asleep).
-  The line under it: *"Your own copy of 23 years of the WHOI schedule. Change anything, it's yours."*
-- **Secondary: "New project"** → `/new`.
-- **Your projects**: ids from `localStorage["dock.projects"]` → `GET /api/projects?ids=…`. Each shows name, origin badge,
-  counts and last opened. Ids the server no longer knows (cleaned up after 14 idle days) are dropped from storage without fuss.
-- A 503 `UNAVAILABLE` on create → an inline message, not a toast: *"The demo is full right now — try again tomorrow."*
-
-### 3.0b New project (`/new`)
-
-One page, three steps, all visible at once (not a multi-page wizard):
-1. **Name** (required, ≤ 80 characters), and **Planning from**: a date defaulting to the real today. It becomes the
-   project's "today" (`ProjectInput.asOfDate`), the earliest date you're planning for. E.g. `2008-04-27` to plan
-   the 2008 season with the old workbook.
-2. **Starting point**, as three large radio cards:
-   - **Default fleet**: "6 berths, 2 shared sections, 164 vessels from the WHOI workbook. No bookings." → `start:"defaults"`.
-   - **Empty**: "Add berths and vessels yourself." → `start:"empty"`.
-   - **Upload a spreadsheet**: "Your own fleet and bookings." → `start:"empty"`, then upload. The card expands to show:
-     a **Download the template** link (`/dock-template.xlsx`), a one-line description of its three sheets
-     (Berths · Vessels · Bookings), a dropzone, the note *"The original year-per-sheet workbook works too."*, and
-     **Planning until** (optional). Blank: the whole file is brought in, and the project's today moves to the
-     file's first date on commit when it lies outside those years. Set: only bookings touching *from → until* come in.
-3. **Create** → `POST /api/projects`. With a file: then `POST /api/projects/<id>/imports` and go straight to that import's
-   preview (3.7 step 2). Otherwise go to `/p/<id>`.
-   Remember the id in `localStorage` as soon as the project exists, before the upload, so a failed upload doesn't lose it.
-
+There is one workspace — the WHOI workbook, seeded once (`npm run db:seed`) and edited in place by everyone — so `/`
+is not a screen. It reads the workspace id server-side and redirects to `/p/<id>`. Nothing here creates, clones or
+switches projects; the only page it can render is the fallback for a database that has never been seeded, which says
+so and names the command.
 
 ### 3.1 Calendar (`/p/[projectId]`, OP-01): the home screen, every view
 
@@ -171,29 +146,9 @@ Table + search; **New vessel** and a delete action per row (confirm dialog; a 40
 Short list (8 rows by default): name, kind, length, active toggle, utilization over the current window. **New berth** (name, kind, length — length hidden and null for a section).
 Edit length/name/order; 409 lists affected bookings. Delete per row with confirm; on 409 ("has bookings") offer **Deactivate instead** in the same dialog.
 
-### 3.7 Import (`/import`, OP-09, OP-10)
-
-1. **Upload** — dropzone for `.xlsx` (refuse > 4 MB before sending) → `POST …/imports` (multipart). Show parsing progress
-   (indeterminate; the request takes a few seconds). Beside it: **Download the template** (`/dock-template.xlsx`). The server
-   detects the format (template or legacy grid); show `ImportRun.format` as a badge in the preview.
-   Above the dropzone: **Planning window**, *from* = the project's today (read-only here, with a link to change it)
-   and *until* (field `planTo`, optional). Left blank, the server reads the window from the file itself (earliest
-   start → latest end) so nothing in it is skipped, and on commit the project's today moves to the window's start if
-   it was outside it (`ImportRun.todaySet` on the commit response → a toast, and the today chip refreshes). With a
-   date, the preview states it plainly: *"1,812 bookings outside 27 Apr 2008 – 15 Jan 2009 were skipped"*
-   (`counts.outsideWindow`).
-2. **Preview** — the `ImportRun` summary: berths, vessels and bookings to add, issues by severity (error / warning / info). Actions: **Commit** (`POST /commit`, confirm dialog stating the count) and **Discard** (`DELETE`).
-3. **Issues** — tabs by severity, filter by code, cursor-paginated (`GET /issues`). Each issue: code badge, sheet + cell (`2010 · AF44`), message, and the parsed row (occupant, dates, raw berth label).
-   Actions on rows that have a `row`: **Create booking** (choose berth — show the availability list inline: `GET …/availability?startDate&endDate&lengthFt=row.vesselLengthFt`; if `vesselLengthFt` is null, ask for it first and send it as `ResolveIssueInput.vesselLengthFt`) or **Dismiss** (optional reason). Resolved issues fade and move to a "Resolved" tab.
-   `MODEL_CLASSIFIED` rows get a small "classified by model" badge, so the user can double-check them.
-   Info-level issues are collapsed by default ("3 December carry-overs dropped, 104 notes skipped…").
-4. Past imports list (`GET …/imports`).
-
-Copy for the empty import page should say plainly: *upload our template to set up berths, vessels and bookings, or the original workbook to bring in its history. New bookings are the future.*
-
 ### 3.9 Conflicts (`/conflicts`)
 
-A rail item under Import, with a red count of open conflicts. Rows from committed imports that read fine but couldn't be
+A rail item with a red count of open conflicts. Rows of the seeded workbook that read fine but couldn't be
 placed as written (`GET …/conflicts`, `GET …/conflicts/summary`).
 - **Totals** by status (open / placed / dismissed), each a filter.
 - **Type chips** with open counts: Berth taken (`OVERLAP`), Too long, Vessel elsewhere, No berth, Berth off. Plus a
@@ -206,7 +161,6 @@ placed as written (`GET …/conflicts`, `GET …/conflicts/summary`).
 - **Bulk**: with a type chip selected, "Dismiss all N …" (confirm dialog).
 - **Auto-resolve** is shown disabled: the CP-SAT solver (backend.md §6.6) comes later.
 
-The import preview shows the conflict count by type and says they move to the Conflicts tab on commit.
 
 ### 3.8 Audit (`/audit`, OP-11)
 
@@ -236,7 +190,7 @@ Every booking date is an `ISODate` string (`"2026-03-05"`), a **calendar day wit
 
 ## 7. API contract
 
-Same Next.js app, same origin: base URL is `/api`; everything except `/api/projects` and `/api/health` lives under `/api/projects/:pid`. JSON everywhere except the import upload (multipart, field name `file`).
+Same Next.js app, same origin: base URL is `/api`; everything except `/api/projects` and `/api/health` lives under `/api/projects/:pid`. JSON everywhere.
 
 ### 7.1 Shared types — import from `shared/contract.ts`
 
@@ -282,13 +236,6 @@ Constants the UI needs: `DATE_MIN`/`DATE_MAX` (date-picker bounds), `HARD_HORIZO
 | POST | `/bookings/:id/cancel` | `{ expectedVersion }` | `BookingView` | soft delete; frees the berth |
 | POST | `/bookings/validate` | `ValidateRequest` | `ValidationResult` | dry run; never writes; 200 even when violations exist (404 only for unknown ids) |
 | GET | `/availability` | `?startDate=&endDate=&vesselId=` or `&lengthFt=` | `AvailabilityResult` | |
-| POST | `/imports` | multipart `file` (.xlsx, ≤ 4 MB) + optional `planTo` | `ImportRun` (201) | window = project today → `planTo`; parses, stages; writes **nothing** live |
-| GET | `/imports` | – | `ImportRun[]` | newest first |
-| GET | `/imports/:id` | – | `ImportRun` | |
-| GET | `/imports/:id/issues` | `?severity=&code=&resolved=&cursor=&limit=` | `Page<ImportIssue>` | |
-| POST | `/imports/:id/commit` | – | `ImportRun` | one transaction; only once per import |
-| DELETE | `/imports/:id` | – | 204 | discards a `previewed` import |
-| POST | `/imports/:id/issues/:issueId/resolve` | `ResolveIssueInput` | `ImportIssue` | `create_booking` goes through the normal rules |
 | GET | `/conflicts` | `?type&status&berthId&q&cursor&limit` | `Page<Conflict>` | open by default, earliest first, live `blockers` |
 | GET | `/conflicts/summary` | – | `ConflictSummary` | counts by status, open by type and by berth |
 | POST | `/conflicts/:id/resolve` | `ResolveConflictInput` | `Conflict` | `place` goes through the normal rules; `dismiss` |
@@ -361,7 +308,6 @@ export const inProject = (pid: T.Id) => {
     cancelBooking: (id: T.Id, expectedVersion: number) => api<T.BookingView>(`${P}/bookings/${id}/cancel`, { method: "POST", json: { expectedVersion } }),
     availability:  (q: { startDate: T.ISODate; endDate: T.ISODate; vesselId?: T.Id; lengthFt?: number }) =>
       api<T.AvailabilityResult>(`${P}/availability?${qs(q)}`),
-    uploadImport:  (file: File) => { const f = new FormData(); f.append("file", file); return api<T.ImportRun>(`${P}/imports`, { method: "POST", body: f }); },
     getSettings:   () => api<T.Settings>(`${P}/settings`),
     putSettings:   (body: T.SettingsPatch) => api<T.Settings>(`${P}/settings`, { method: "PUT", json: body }),
     // …the rest follow the same shape: one per row of §7.2.
@@ -370,8 +316,7 @@ export const inProject = (pid: T.Id) => {
 ```
 
 ```ts
-// query keys — invalidate [pid, "schedule"] and [pid, "bookings"] after any booking mutation, commit, or resolve
-// every key starts with the project id, so switching projects can never show another project's cached data
+// query keys — invalidate [pid, "schedule"] and [pid, "bookings"] after any booking mutation or resolve
 export const qk = {
   projects: (ids: string[]) => ["projects", ids] as const,
   project: (pid: string) => ["project", pid] as const,
@@ -381,8 +326,6 @@ export const qk = {
   vessels: (pid: string, q?: string) => [pid, "vessels", q] as const,
   berths: (pid: string) => [pid, "berths"] as const,
   settings: (pid: string) => [pid, "settings"] as const,
-  imports: (pid: string) => [pid, "imports"] as const,
-  issues: (pid: string, id: string, f: object) => [pid, "imports", id, "issues", f] as const,
 };
 ```
 
@@ -391,7 +334,7 @@ export const qk = {
 - [ ] Every row of manual.md's worked-examples table can be reproduced in the UI and shows the right message *before* Save.
 - [ ] A too-long vessel shows the fit bar with the exact shortfall.
 - [ ] "Find another berth" lands on availability with the tightest free fit first.
-- [ ] Importing the sample workbook shows the summary, and every error-level issue can be created or dismissed.
+- [ ] `npm run db:seed` loads the workbook: ~2,100 bookings, 32 tours, 56 usage rows, and the conflicts it could not place.
 - [ ] Setting "today" to 2020-01-01 moves the grid and the today line; bookings before it show the `IN_PAST` warning when edited.
 - [ ] Light and dark themes; 400px width; keyboard-only booking flow works; reduced motion respected.
 - [ ] No `new Date(isoDateString)` anywhere (grep for it).

@@ -35,7 +35,6 @@ pipeline/                     the Python parse pipeline (regex + optional model)
 shared/pipeline.ts            ParsedWorkbook: the JSON contract between pipeline/ and import/stage.ts
 backend/parse.py              the original prototype grid parser (pipeline/grid.py grew out of it)
 backend/seed/                 extract_defaults.py → defaults.json (the default fleet)
-public/dock-template.xlsx     the upload template (npm run template:build)
 test/
 ```
 
@@ -129,8 +128,7 @@ JSON in and out, dates as `ISODate`, same origin as the UI (no CORS).
 | Method | Path | Body / query | Success | Notes |
 |---|---|---|---|---|
 | GET | `/api/health` | – | `{ ok: true }` | also pings the DB |
-| GET | `/api/projects` | `?ids=a,b,c` (≤ `MAX_PROJECTS_PER_REQUEST`) | `Project[]` | only the ids asked for; unknown ids are left out. **Never lists all projects** |
-| POST | `/api/projects` | `ProjectInput` | `Project` (201) | `sample` / `defaults` → `clone_project(template)`; `empty` → blank. 503 `UNAVAILABLE` at the cap |
+| GET | `/api/projects` | – | `Project[]` | the workspace (admins: every project). Nothing creates one over HTTP |
 | GET | `/api/projects/:pid` | – | `Project` | bumps `lastOpenedAt` (the cleanup clock) |
 | PATCH | `/api/projects/:pid` | `ProjectPatch` | `Project` | rename |
 | DELETE | `/api/projects/:pid` | – | 204 | deletes everything in it |
@@ -157,13 +155,6 @@ JSON in and out, dates as `ISODate`, same origin as the UI (no CORS).
 | POST | `/bookings/:id/cancel` | `{ expectedVersion }` | `BookingView` | soft delete; frees the berth |
 | POST | `/bookings/validate` | `ValidateRequest` | `ValidationResult` | dry run; never writes; 200 even when violations exist (404 only for unknown ids) |
 | GET | `/availability` | `?startDate=&endDate=&vesselId=` or `&lengthFt=` | `AvailabilityResult` | |
-| POST | `/imports` | multipart `file` (.xlsx, ≤ 4 MB) + optional `planTo` | `ImportRun` (201) | window = project today → `planTo`; parses, stages; writes **nothing** live |
-| GET | `/imports` | – | `ImportRun[]` | newest first |
-| GET | `/imports/:id` | – | `ImportRun` | |
-| GET | `/imports/:id/issues` | `?severity=&code=&resolved=&cursor=&limit=` | `Page<ImportIssue>` | |
-| POST | `/imports/:id/commit` | – | `ImportRun` | one transaction; only once per import |
-| DELETE | `/imports/:id` | – | 204 | discards a `previewed` import |
-| POST | `/imports/:id/issues/:issueId/resolve` | `ResolveIssueInput` | `ImportIssue` | `create_booking` goes through the normal rules |
 | GET | `/conflicts` | `?type&status&berthId&q&cursor&limit` | `Page<Conflict>` | open by default, earliest first, live `blockers` |
 | GET | `/conflicts/summary` | – | `ConflictSummary` | counts by status, open by type and by berth |
 | POST | `/conflicts/:id/resolve` | `ResolveConflictInput` | `Conflict` | `place` goes through the normal rules; `dismiss` |
@@ -172,14 +163,12 @@ JSON in and out, dates as `ISODate`, same origin as the UI (no CORS).
 | POST | `/conflicts/apply` | `ApplyProposalsInput` | `ApplyProposalsResult` | one booking per segment, normal rules, one transaction; 409 if stale |
 | GET | `/audit` | – | `AuditReport` | re-verifies every rule over all bookings |
 
-Not part of the UI contract: `GET /api/cron/cleanup` (Vercel Cron, `CRON_SECRET`; infrastructure.md §5) and the
-static file `GET /dock-template.xlsx`.
+Not part of the UI contract: `GET /api/cron/cleanup` (Vercel Cron, `CRON_SECRET`; infrastructure.md §5).
 
 Notes:
 
-- **Create project.** `sample` / `defaults` call `clone_project(<template id>, name, origin)`, one statement
-  (database.md §6). "Upload your own" is two calls: `POST /api/projects {start:"empty"}`, then `POST …/imports`.
-  Cap: 300 non-template projects → 503 `UNAVAILABLE`.
+- **No create.** The workspace is seeded, never created through the API. `clone_project` (database.md §6) stays for
+  the seed's own use: the sample is built as a clone of `defaults` before the workbook is read into it.
 - **Bookings read.** `GET /bookings` requires `from` and `to`. It returns bookings that touch the window, confirmed only
   unless `includeCancelled=true`.
 - **Schedule read.** `GET /schedule` is the same query plus the berth list, so the grid needs one round trip. Default
@@ -214,27 +203,32 @@ With `vesselId`, `lengthFt` is the vessel's length (422 `UNPROCESSABLE` if the v
 in the facility's zone (`"system"`). Compute that with an explicit zone (`America/New_York`), not the server's clock zone,
 because Vercel runs in UTC. `PUT { asOfDate: null }` clears it. The sample template ships with `2019-07-01`.
 
-## 6. Import pipeline
+## 6. Ingestion pipeline (seed only)
+
+Nothing uploads a spreadsheet any more: the workbook is read once by `npm run db:seed`, which calls `uploadImport` and
+`commitImport` directly. There is no HTTP surface for it. Everything below still describes exactly what that seed does,
+because if the parser breaks the seed fails — an end-to-end test for free.
+
 
 ```
  .xlsx ──► pipeline/ (Python)                          ──► ParsedWorkbook JSON ──► import/stage.ts (TS)                 ──► staging tables
            "what does the file say?"                       shared/pipeline.ts      "what is allowed?"
            1 detect format (sheet names)                   zod-validated           1 planning window: drop rows outside
-           2 parse: template tables | legacy grid                                  2 match berths/vessels (project + staged)
+           2 parse: the year-per-sheet grid                                 2 match berths/vessels (project + staged)
            3 classify each cell: regex first,                                      3 rules.ts, earliest-first, MemoryStore
              model only for what regex can't place                                 4 pass → staged row; fail → issue
            4 normalise names, merge ranges, attach lengths
 ```
 
 **Split of work.** Python parses. It never decides whether a booking is *allowed*: it emits every row it could read,
-with parse-level issues. TypeScript owns the planning window and the rules (`rules.ts`), so manual booking and import
-still run the exact same rule code.
+with parse-level issues. TypeScript owns the planning window and the rules (`rules.ts`), so a hand-typed booking and a
+seeded one still run the exact same rule code.
 
-**Nothing is rejected wholesale.** An upload always produces a preview. Rows that pass are staged. Rows that read fine
+**Nothing is rejected wholesale.** A run always produces a preview. Rows that pass are staged. Rows that read fine
 but can't be placed (overlap, too long, double-berthed, no berth, berth inactive) become **conflicts** (§6.6). Cells that
 couldn't be read properly become **issues**. Commit brings in the staged rows and opens the conflicts; nothing waits silently.
 
-**Planning window.** `from` = the project's "today" at upload time (the anchor: *the earliest date you're planning
+**Planning window.** `from` = the project's "today" when the run starts (the anchor: *the earliest date you're planning
 for*); `to` = the `planTo` field, default `from + HARD_HORIZON_YEARS`. A row is kept if it **touches** the window
 (`start ≤ to && end ≥ from`, unclipped: a stay that began before `from` still occupies the berth). Everything else is
 counted in `counts.outsideWindow` and skipped, and so are parse issues whose row lies outside the window, so planning
@@ -250,39 +244,18 @@ sample template uses the full range (`DATE_MIN…DATE_MAX`).
 
 **The model step (optional).** Regex classifies ~95% of cells (prefixes `R/V M/V …` → vessel; keyword lists → closure /
 event / operational note). What's left (odd free text like "Sea Scouts overnight" or "Hull survey – yard") goes to a
-small hosted model, **Claude Haiku 4.5**. There is one batched request per upload, containing only unique leftover
+small hosted model, **Claude Haiku 4.5**. There is one batched request per run, containing only unique leftover
 strings, at temperature 0, with strict JSON output (`{text → vessel|event|closure|note|unknown}`). Model-classified rows
 carry `classifiedBy: "model"` plus an info issue `MODEL_CLASSIFIED`, so a person can check them. No `ANTHROPIC_API_KEY`
 means the step is skipped and those cells stay `UNPARSEABLE_CELL`: the pipeline never *needs* the model. The model only
 ever labels text; dates, berths and lengths always come from regex and the grid structure.
 
-### The template (`public/dock-template.xlsx`): "our standard"
-
-Plain tables, one header row per sheet, one record per row. Every sheet is optional. You can upload just Berths and
-Vessels to configure a project, or just Bookings for a project that already has its fleet.
-
-| Sheet | Columns (header text must match, case-insensitive) | Rules |
-|---|---|---|
-| `Berths` | `Name` · `Kind` · `Length (ft)` · `Order` | Kind is `berth` or `section`. Length is required for a berth and must be blank for a section. Order is optional; default is file order |
-| `Vessels` | `Name` · `Length (ft)` · `Draft (ft)` · `Operator` · `Notes` | Name is required. A blank length means "unknown", like legacy vessels, and blocks manual booking until filled in |
-| `Bookings` | `Berth` · `Type` · `Vessel / Title` · `Start` · `End` · `Notes` | Type is `vessel`, `event` or `closure`. Berth must name a berth in this file or already in the project. A vessel name not found anywhere is created with an unknown length. Start and End (inclusive) are Excel date cells or `YYYY-MM-DD` text |
-
-- A wrong header row → `TEMPLATE_BAD_HEADER` (error). That sheet is skipped and the others still import.
-- A bad cell (kind, length, type, date) → `INVALID_VALUE` (error), with sheet and cell (`Bookings · D12`). The row is skipped.
-- The same name twice in the file → `DUPLICATE_NAME` (warning); the first is kept.
-- A name that already exists in the project → `DUPLICATE_EXISTING` (info). The existing record is used, not overwritten.
-- **Excel dates:** exceljs returns a date cell as a JS `Date` at **UTC** midnight. Read it with `getUTCFullYear/Month/Date`.
-  Local getters shift it by a day in the Americas.
-
-The generator (`npm run template:build`) adds a Kind/Type dropdown (data validation), a frozen header row, and one
-example row per sheet that the parser skips because its Name starts with `e.g.`.
-
 ### Legacy grid
 
 Turns the original year-per-sheet workbook into staged rows plus issues explaining everything else. `pipeline/grid.py`
 grew out of the `backend/parse.py` prototype. Berth labels shaped `Name - 410'` (and
-the two section labels) **stage a berth** if the project doesn't have one by that name. So a legacy upload into an
-*empty* project works, and it builds the same 8 berths the defaults have.
+the two section labels) **stage a berth** if the project doesn't have one by that name. So the grid seeds into an
+*empty* project just as well, and it builds the same 8 berths the defaults have.
 
 **Stage 1 — parse the grid** (`pipeline/grid.py`). Only sheets whose name is a 4-digit year are schedules; `8YR Dock Summary`, `Science`, `Yachts`, `Tours` are not (Science/Yachts feed stage 2).
 
@@ -307,11 +280,11 @@ the two section labels) **stage a berth** if the project doesn't have one by tha
 
 1. Map the berth label to a berth: an existing one in the project, or one staged from this file. A row with no label → `NO_BERTH`.
 2. Sort rows by `(startDate, endDate)`. Feed them one at a time through the **same `validateBooking`** using an in-memory `BookingStore` seeded with the project's *existing* live bookings (loaded once per berth, not per row) plus everything accepted so far; use `source: "import"` (length-unknown allowed, no `IN_PAST`).
-3. A row identical to an existing confirmed booking (same berth, title, dates) → `DUPLICATE_EXISTING` (info), skip. This is what makes re-importing the same file safe.
+3. A row identical to an existing confirmed booking (same berth, title, dates) → `DUPLICATE_EXISTING` (info), skip. This is what makes re-running the seed safe.
 4. Otherwise: no `error` violations → **stage it**; a placement violation → a staged **conflict** typed by it (`OVERLAP`, `VESSEL_TOO_LONG`, `VESSEL_DOUBLE_BERTHED`, `BERTH_INACTIVE`); bad data (`INVALID_RANGE`, `MISSING_FIELD`) → an `INVALID_VALUE` issue. Rows with no berth (or an unknown one) → a `NO_BERTH` conflict. Because rows are processed earliest-first, the earlier booking wins an overlap. A conflict's vessel is still staged, so placing it later needs nothing else.
 5. Store the `ImportRun` with counts, return it. **Nothing is written to `booking` yet.**
 
-**Commit** (`POST …/imports/:id/commit`) is one transaction:
+**Commit** (`commitImport`, called by the seed) is one transaction:
 1. Insert the staged berths.
 2. Insert the staged vessels, matching existing ones by `lower(name)`.
 3. Insert the staged bookings with `source='import'`, pointing each at its real or new berth and vessel.
@@ -320,13 +293,9 @@ the two section labels) **stage a berth** if the project doesn't have one by tha
 
 The DB constraints re-check every row. If any fires, the whole commit rolls back, which must never happen in tests. A second commit → 409.
 
-**Resolve** (`POST /imports/:id/issues/:issueId/resolve`):
-- `create_booking { berthId, vesselLengthFt? }` — builds a `BookingInput` from the issue's `row` (vessel found or created by `lower(name)`, `vesselLengthFt` sets its length if given), runs the normal create path with `source:"import"`. Rule failures return the usual 409/422 and the issue stays open.
-- `dismiss { reason? }` — marks it dismissed.
-
 ### 6.6 Conflicts
 
-Uploading a whole season in one shot can produce hundreds of rows that can't be placed as written. They aren't import
+Reading 23 years in one shot produces hundreds of rows that can't be placed as written. They aren't parse
 issues (the data is fine) — they are **claims**: *this occupant wanted this berth on these days*. Table `conflict`
 (`0003_conflicts.sql`): the claim as the file stated it, its `type`, and a status `staged → open → placed | dismissed`.
 Staged conflicts belong to a previewed import (discard deletes them); commit opens them on the project's **Conflicts** tab.
@@ -419,15 +388,16 @@ The one place a lock *is* warranted is the import commit. It is long and touches
 The rejected transaction has rolled back, so the log row is inserted **after** the rollback, as its own statement.
 If it were inserted inside the transaction, it would vanish with it.
 
-## 9. Seed data: the two templates
+## 9. Seed data: the workspace
 
-`npm run db:seed` builds two **template projects** (read-only; users get clones, infrastructure.md §2 and §4):
+`npm run db:seed` builds:
 
-- **`defaults`**: the berths and vessels in `backend/seed/defaults.json`, no bookings.
+- **`defaults`**: the berths and vessels in `backend/seed/defaults.json`, no bookings. Read-only, and not shown in the app.
 - **`sample`**: a clone of `defaults`, plus the sample workbook run through the real importer (preview → commit, with
-  every issue left open for triage), plus `as_of_date = 2019-07-01`.
+  every conflict left open), plus `as_of_date = 2019-07-01`. **This is the workspace** — everyone signs in and edits it.
 
-Seeding is idempotent, and `--force` rebuilds both templates. User projects are never touched by a re-seed.
+Seeding is idempotent. `--force` rebuilds both, which means it discards whatever the workspace has been edited to;
+that is the only reset there is, and it is why `DELETE /api/projects/:pid` refuses to remove the workspace.
 
 `backend/seed/extract_defaults.py` reads the sample workbook with regex and writes `defaults.json`:
 
