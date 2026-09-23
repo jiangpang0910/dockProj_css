@@ -22,6 +22,6 @@ describe.skipIf(!fs.existsSync("pipeline/cli.py"))("seed templates (slow)", () =
     const sample = await createProject({ name: "Sample", start: "sample" }, "editor");
     expect(sample.counts.berths).toBe(8);
     expect(sample.counts.bookings).toBeGreaterThan(1500);
-    expect((await getSettings(sample.id)).asOfDate).toBe("2019-07-01");
+    expect((await getSettings(sample.id)).asOfDate).toBe("2013-06-19");
   }, 120_000);
 });

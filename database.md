@@ -183,7 +183,7 @@ what `EXCLUDE` and triggers are for. A perfectly normalised schema can still dou
 
 | Path | What happens |
 |---|---|
-| **Templates** (seeded once, `npm run db:seed`, infrastructure.md §4) | `template_key='defaults'`: 6 berths + 2 sections + 164 vessels from `backend/seed/defaults.json`, no bookings. `template_key='sample'`: the same fleet plus the sample workbook imported and committed through the normal importer, `as_of_date = 2019-07-01`. |
+| **Templates** (seeded once, `npm run db:seed`, infrastructure.md §4) | `template_key='defaults'`: 6 berths + 2 sections + 164 vessels from `backend/seed/defaults.json`, no bookings. `template_key='sample'`: the same fleet plus the sample workbook imported and committed through the normal importer, `as_of_date = 2013-06-19`. |
 | **Open the sample** | `SELECT clone_project(<sample>, 'Sample — WHOI dock', 'sample')`. Every visitor gets a **private copy**, so one reviewer's edits never show up for the next. |
 | **Start from the default fleet** | `clone_project(<defaults>, :name, 'defaults')` |
 | **Start empty** | `INSERT INTO project (name, origin) VALUES (:name, 'empty')`. Then add berths and vessels by hand, **or** upload an `.xlsx`. |

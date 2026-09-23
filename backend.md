@@ -201,7 +201,7 @@ With `vesselId`, `lengthFt` is the vessel's length (422 `UNPROCESSABLE` if the v
 
 `project.as_of_date` holds the override, if any. `GET` returns the override (`asOfSource: "override"`) or today's date
 in the facility's zone (`"system"`). Compute that with an explicit zone (`America/New_York`), not the server's clock zone,
-because Vercel runs in UTC. `PUT { asOfDate: null }` clears it. The sample template ships with `2019-07-01`.
+because Vercel runs in UTC. `PUT { asOfDate: null }` clears it. The sample template ships with `2013-06-19`.
 
 ## 6. Ingestion pipeline (seed only)
 
@@ -394,7 +394,7 @@ If it were inserted inside the transaction, it would vanish with it.
 
 - **`defaults`**: the berths and vessels in `backend/seed/defaults.json`, no bookings. Read-only, and not shown in the app.
 - **`sample`**: a clone of `defaults`, plus the sample workbook run through the real importer (preview → commit, with
-  every conflict left open), plus `as_of_date = 2019-07-01`. **This is the workspace** — everyone signs in and edits it.
+  every conflict left open), plus `as_of_date = 2013-06-19`. **This is the workspace** — everyone signs in and edits it.
 
 Seeding is idempotent. `--force` rebuilds both, which means it discards whatever the workspace has been edited to;
 that is the only reset there is, and it is why `DELETE /api/projects/:pid` refuses to remove the workspace.

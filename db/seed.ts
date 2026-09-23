@@ -2,7 +2,7 @@
  * npm run db:seed [-- --force] — build the two read-only template projects (infrastructure.md §4, backend.md §9):
  *   defaults: backend/seed/defaults.json (6 berths + 2 sections + 164 vessels), no bookings
  *   sample:   a clone of defaults + the sample workbook through the REAL importer (full window, committed),
- *             "today" = 2019-07-01. If the importer breaks, the seed fails — an end-to-end test for free.
+ *             "today" = 2013-06-19. If the importer breaks, the seed fails — an end-to-end test for free.
  * Idempotent: existing templates are left alone unless --force. User projects are never touched.
  */
 import fs from "node:fs";
@@ -16,7 +16,11 @@ import { commitImport, uploadImport } from "../src/server/services/imports";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const DEFAULTS_JSON = path.join(ROOT, "backend/seed/defaults.json");
 export const SAMPLE_XLSX = path.join(ROOT, "sample_data/Dock Schedule - Synthetic Sample.xlsx");
-export const SAMPLE_AS_OF = "2019-07-01";
+// The anchor the workspace opens on. Chosen from the data, not the calendar: June 2013 is the only month whose
+// next twelve carry all four conflict types (3 overlap, 2 too long, 2 double-berthed, 27 no berth), with 2013-14
+// among the busiest years in the file — so the schedule, the Conflicts screen and Auto-resolve all have something
+// to show on first load. 19 June is a midweek day with three berths occupied.
+export const SAMPLE_AS_OF = "2013-06-19";
 
 interface Defaults {
   berths: { name: string; kind?: string; lengthFt: number | null; sortOrder: number }[];   // kind: older defaults.json, ignored

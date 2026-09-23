@@ -43,7 +43,7 @@ export interface Project {
 export interface ProjectInput {
   name: string;
   start: ProjectOrigin;       // "upload your own" = start: "empty", then POST an import
-  asOfDate?: ISODate | null;   // the planning anchor ("today"). The sample ignores it (it ships 2019-07-01)
+  asOfDate?: ISODate | null;   // the planning anchor ("today"). The sample ignores it (it ships 2013-06-19)
 }
 export interface ProjectPatch { name: string; }
 

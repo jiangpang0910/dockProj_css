@@ -68,7 +68,7 @@ so the effort goes into **correctness and data quality** instead. If the scale w
 `(berth_id, start_date)` would still be the first thing to try, long before a custom structure.
 
 **What is "today"?** The data ends in 2019, but the real date is 2026. So "today" is a setting
-per project: it defaults to the real date and can be overridden (the sample opens as of `2019-07-01`) to demo a
+per project: it defaults to the real date and can be overridden (the workspace opens as of `2013-06-19`) to demo a
 forward-looking schedule on top of the loaded past. It moves the default view and the "today" marker and
 produces an `IN_PAST` *warning*; it never changes which bookings are valid.
 

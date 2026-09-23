@@ -83,7 +83,7 @@ DATABASE_URL_UNPOOLED=… npm run db:seed           # idempotent; --force rebuil
 | Template | Built from |
 |---|---|
 | `defaults` | `backend/seed/defaults.json` (regex-extracted from the workbook): 8 berths/sections, 164 vessels |
-| `sample` | clone of `defaults`, then `sample_data/Dock Schedule - Synthetic Sample.xlsx` run through **the real importer** (preview → commit), then `as_of_date = 2019-07-01` so it opens on a busy summer. **This is the workspace** |
+| `sample` | clone of `defaults`, then `sample_data/Dock Schedule - Synthetic Sample.xlsx` run through **the real importer** (preview → commit), then `as_of_date = 2013-06-19`, the month whose next twelve hold every kind of conflict. **This is the workspace** |
 
 Seeding through the real importer is also an end-to-end test: if the parser breaks, the seed fails.
 
