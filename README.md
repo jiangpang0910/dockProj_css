@@ -94,10 +94,21 @@ shape.
 ## Tests
 
 `npm test` — **85 TypeScript tests**, including database-level tests that run the real migrations against an
-in-process Postgres (PGlite), so the `EXCLUDE` constraints are exercised, not mocked.
+in-process Postgres (PGlite), so the `EXCLUDE` constraints are exercised rather than mocked.
 `python3 -m unittest discover -s pipeline/tests` — **105 Python tests** over the parser and the solver.
-**190 automated tests, all passing.** The live deployment is additionally spot-checked with `puppeteer-core`
-(anchor date, conflict counts, a real solver run) — a verification script, not part of the suite.
+
+On top of the suites, the rules were checked two more ways against a **running server and a real database**:
+
+- **A generated rule matrix — 1,351 cases, 0 failures.** Every combination of 45 date windows (before, abutting,
+  arriving on the departure day, contained, identical, straddling) × occupant (the same vessel, a vessel with a
+  look-alike name, an event, a closure) × target berth, sent through the dry-run `POST /bookings/validate`
+  endpoint, with each answer compared against an oracle written from the rules in plain words. The point is the
+  combinations a hand-written test never thinks to try — particularly that "same name" and "same vessel" are not
+  the same question.
+- **End-to-end through the UI, with `puppeteer-core`.** Chrome fills the real New booking form the way a person
+  does, and reads what the live check says: overlap, the inclusive departure-day edge, the back-to-back control
+  that must stay clean, vessel-too-long, one-place-at-a-time, two violations at once, closures and events on an
+  occupied berth, reversed dates, and both horizon limits.
 
 ## What the sample data tells us
 
