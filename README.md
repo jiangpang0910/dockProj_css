@@ -98,9 +98,9 @@ per CP-SAT stage, a SIGKILL 20 s past that, and a 60 s route ceiling.
 rules a manual booking goes through. There is no upload UI: a reviewer should be looking at the scheduling
 product, not at a file picker.
 
-**The schedule grid follows Google Calendar** — berths as rows, days as columns, bars you can read at a
-glance — because the coordinator already knows how to use that, and the spreadsheet it replaces is the same
-shape.
+**The schedule grid is inspired by Google Calendar** — berths as rows, days as columns, bookings as bars you
+can read at a glance, and a day / week / month / quarter switch. The coordinator already knows how to use
+that, and the spreadsheet it replaces is the same shape, so there is nothing new to learn.
 
 ## Tests
 
