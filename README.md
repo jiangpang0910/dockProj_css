@@ -54,12 +54,23 @@ screen and the solver all have something to show on first load. It is a setting 
 
 ## Design decisions
 
-**The rules live in one place and are enforced in three.** `src/server/domain/rules.ts` is pure and has no
-database: it decides, and returns a message plus the ids of the bookings in the way. The service layer asks
-it before every write. Postgres then enforces the same thing declaratively —
-`EXCLUDE USING gist (berth_id WITH =, period WITH &&) WHERE (status = 'confirmed')` — so two concurrent
-requests cannot both win. If the constraint ever fires, the app logs `[rules.ts missed a rule]`, because
-that means the pure layer and the database disagreed.
+**One set of rules, checked twice.** The database is **Postgres, hosted on Neon**. The rules themselves — no
+overlap, vessel fits, one place at a time — live in a single file, `src/server/domain/rules.ts`. It is an
+ordinary function with no database in it: give it the bookings already on a berth and the one someone wants
+to add, and it answers yes or no and names the bookings in the way. Every write goes through it first, and
+that is where the readable rejection comes from.
+
+Postgres then checks the same thing a second time, inside the table:
+
+```sql
+EXCLUDE USING gist (berth_id WITH =, period WITH &&) WHERE (status = 'confirmed')
+```
+
+That line says no two confirmed bookings may share a berth and a day. It earns its place when two people save
+at the same moment: both read a free berth, both pass the rule check, and only one row can be allowed in.
+No amount of application code can prevent that from the outside — the database can, and does, by refusing the
+second write. If the constraint ever fires, the app logs `[rules.ts missed a rule]`, because that means the
+two layers disagreed about the rules and something needs fixing.
 
 **A rejection is a destination, not a message.** `POST /bookings/validate` is a dry run, so the UI shows the
 problem while you are still typing. When a save is blocked, the panel names the booking in the way and links
