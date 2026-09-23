@@ -14,12 +14,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiRequestError, errorMessage } from "@/lib/api/client";
 import { qk } from "@/lib/api/keys";
-import { addDays, addYears, formatRange, isISODate, startOfMonth } from "@/lib/dates";
+import { formatRange, isISODate } from "@/lib/dates";
 import { ft, occupantLabel, plural } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { OccupantIcon } from "@/components/booking/occupant";
 import { useBookingEditor } from "@/components/booking/booking-editor";
-import { useProjectCtx, useToday } from "@/components/project/project-context";
+import { useConflictWindow, useProjectCtx } from "@/components/project/project-context";
 import { DEFAULT_SOLVE_OPTIONS, ProposalReview, SolveOptionsPopover, describeOptions, type SolveSettings } from "./auto-resolve";
 import { ErrorBox, PageHeader } from "./page-header";
 
@@ -44,15 +44,10 @@ export function ConflictsScreen() {
   const type = (params.get("type") as ConflictType | null) ?? undefined;
   const status = (params.get("status") as ConflictStatus | null) ?? "open";
   const berthId = params.get("berth") ?? undefined;
-  const today = useToday();
   // A claim from 1997 is not what someone planning this summer is looking at, so the list opens on the same
   // year the Events screen does: this month, plus twelve. "All dates" (?all=1) puts the whole backlog back.
-  const allDates = params.get("all") === "1";
-  const defFrom = today ? startOfMonth(today) : "";
-  const defTo = defFrom ? addDays(addYears(defFrom, 1), -1) : "";
-  const from = allDates ? undefined : (params.get("from") ?? defFrom) || undefined;
-  const to = allDates ? undefined : (params.get("to") ?? defTo) || undefined;
-  const windowed = !allDates && !!(from && to);
+  // The hook lives in project-context because the rail badge reads the very same window.
+  const { from, to, windowed, allDates, ready } = useConflictWindow();
   const [q, setQ] = useState("");
   const setParam = (k: string, v: string | null) => {
     const next = new URLSearchParams(params);
@@ -61,10 +56,11 @@ export function ConflictsScreen() {
   };
 
   const win = windowed ? { from, to } : {};
-  // Until settings arrive there is no default window, and asking now would fetch the whole backlog and then
-  // immediately re-fetch it windowed. Wait for "today" unless the user has explicitly asked for all dates.
-  const ready = allDates || !!from;
+  // `ready` guards the first render: until settings arrive there is no default window, and asking now would fetch
+  // the whole backlog and then immediately re-fetch it windowed.
   const summary = useQuery({ queryKey: qk.conflictSummary(pid, win), queryFn: () => api.conflictSummary(win), enabled: ready });
+  // The backlog behind the window, so narrowing the dates never looks like conflicts went missing.
+  const allTime = useQuery({ queryKey: qk.conflictSummary(pid, {}), queryFn: () => api.conflictSummary(), enabled: windowed });
   const filter = { type, status, berthId, q: q.trim() || undefined, ...win };
   const list = useInfiniteQuery({
     queryKey: qk.conflicts(pid, filter),
@@ -121,7 +117,7 @@ export function ConflictsScreen() {
         sub="Rows of the workbook that read fine but couldn't be placed as written. Place each on a berth, dismiss it, or tick several and let Auto-resolve propose berths. Nothing here is on the schedule yet." />
       <p className="-mt-3 text-sm text-ink-muted">
         {windowed
-          ? <>Showing claims that touch <span className="num">{formatRange(from!, to!)}</span>. Counts below follow the same dates.</>
+          ? <>Showing claims that touch <span className="num">{formatRange(from!, to!)}</span>. Every count on this page and on the rail follows these dates.</>
           : <>Showing every claim in the workbook, from the first year to the last.</>}
       </p>
 
@@ -133,7 +129,12 @@ export function ConflictsScreen() {
             <p className={cn("num text-2xl font-semibold tracking-tight", st.id === "open" && (s?.open ?? 0) > 0 && "text-signal")}>
               {s ? s[st.id].toLocaleString() : "…"}
             </p>
-            <p className="text-xs text-ink-muted">{st.label.toLowerCase()}</p>
+            <p className="text-xs text-ink-muted">
+              {st.label.toLowerCase()}
+              {/* the rest of the backlog is outside these dates, not gone */}
+              {st.id === "open" && windowed && allTime.data && allTime.data.open > (s?.open ?? 0) &&
+                <> · <span className="num">{allTime.data.open.toLocaleString()}</span> in all years</>}
+            </p>
           </button>
         ))}
       </div>

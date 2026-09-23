@@ -152,8 +152,10 @@ A rail item with a red count of open conflicts. Rows of the seeded workbook that
 placed as written (`GET …/conflicts`, `GET …/conflicts/summary`).
 The list opens on the same year the Events screen does — this month plus twelve, from the project's "today" — because a
 claim from 1997 is not what someone planning this summer is looking at. The date pair is editable and **All dates**
-turns the window off. The counts beside the list (status totals, type chips, berth menu) use the same window; the count
-on the rail does not, so the backlog total never moves just because you changed the date.
+turns the window off. Every count follows that window — the status totals, the type chips, the berth menu **and the number on
+the rail**, which reads it from the same hook (`useConflictWindow`). A rail that says 219 beside a page that says 3
+reads as a bug, whatever the reasoning. The backlog is still on the page, as "3 open · 219 in all years", so
+narrowing the dates never looks like conflicts went missing.
 - **Totals** by status (open / placed / dismissed), each a filter.
 - **Type chips** with open counts: Berth taken (`OVERLAP`), Too long, Vessel elsewhere, No berth, Berth off. Plus a
   berth filter and a search box. Filters live in the URL.
@@ -241,7 +243,7 @@ Constants the UI needs: `DATE_MIN`/`DATE_MAX` (date-picker bounds), `HARD_HORIZO
 | POST | `/bookings/validate` | `ValidateRequest` | `ValidationResult` | dry run; never writes; 200 even when violations exist (404 only for unknown ids) |
 | GET | `/availability` | `?startDate=&endDate=&vesselId=` or `&lengthFt=` | `AvailabilityResult` | |
 | GET | `/conflicts` | `?type&status&berthId&q&from&to&cursor&limit` | `Page<Conflict>` | open by default, earliest first, live `blockers`. `from`/`to` keep the claims that **touch** that window; either end may be left off, neither = every year |
-| GET | `/conflicts/summary` | `?from&to` | `ConflictSummary` | counts by status, open by type and by berth. Windowed the same way, so the screen's counts match its list; the nav badge asks for no window and shows the whole backlog |
+| GET | `/conflicts/summary` | `?from&to` | `ConflictSummary` | counts by status, open by type and by berth. Windowed the same way. Asked twice on the Conflicts screen: once for the window (every count, rail included) and once with no window, for the "in all years" total |
 | POST | `/conflicts/:id/resolve` | `ResolveConflictInput` | `Conflict` | `place` goes through the normal rules; `dismiss` |
 | POST | `/conflicts/dismiss` | `DismissConflictsInput` | `{ dismissed }` | bulk: given ids, or every open one of a type — with `from`/`to`, only that type inside the window, so the count in the button is the count that goes |
 | POST | `/conflicts/solve` | `SolveRequest` | `SolveResult` | CP-SAT proposals for the selected conflicts; writes nothing |

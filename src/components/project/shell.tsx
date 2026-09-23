@@ -23,7 +23,7 @@ import { ApiRequestError, errorMessage } from "@/lib/api/client";
 import { renameProject } from "@/lib/api/endpoints";
 import { qk } from "@/lib/api/keys";
 import { cn } from "@/lib/utils";
-import { ProjectProvider, useProject, useProjectCtx } from "./project-context";
+import { ProjectProvider, useConflictWindow, useProject, useProjectCtx } from "./project-context";
 import { TodayChip } from "./today-chip";
 
 const NAV = [
@@ -49,7 +49,10 @@ export function ProjectShell({ pid, me, children }: { pid: string; me: Session; 
 function Frame({ me, children }: { me: Session; children: React.ReactNode }) {
   const { pid, api } = useProjectCtx();
   const project = useProject();
-  const conflicts = useQuery({ queryKey: qk.conflictSummary(pid), queryFn: () => api.conflictSummary() });
+  // the same window the Conflicts screen is showing, so the two numbers can never disagree
+  const win = useConflictWindow();
+  const w = win.windowed ? { from: win.from, to: win.to } : {};
+  const conflicts = useQuery({ queryKey: qk.conflictSummary(pid, w), queryFn: () => api.conflictSummary(w), enabled: win.ready });
   const pathname = usePathname();
   const editor = useBookingEditor();
 
