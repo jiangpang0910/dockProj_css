@@ -4,7 +4,7 @@
  */
 import {
   CONFLICT_TYPES, type Conflict, type ConflictBlocker, type ConflictSummary, type ConflictType, type DismissConflictsInput,
-  type Page, type ResolveConflictInput,
+  type ISODate, type Page, type ResolveConflictInput,
 } from "@shared/contract";
 import type { Queryable } from "../db/types";
 import { getDb } from "../db/pool";
@@ -70,7 +70,15 @@ async function load(q: Queryable, pid: string, id: string): Promise<Conflict> {
 }
 
 export interface ConflictFilter {
-  type?: ConflictType; status?: Conflict["status"]; berthId?: string; q?: string; cursor?: string; limit?: number;
+  type?: ConflictType; status?: Conflict["status"]; berthId?: string; q?: string;
+  from?: ISODate; to?: ISODate;          // the claim's days must touch [from, to]; either end may be left open
+  cursor?: string; limit?: number;
+}
+
+/** `c.start_date <= to AND c.end_date >= from`, added only for the ends that were given. */
+function window(f: { from?: ISODate; to?: ISODate }, add: (sql: string, v: unknown) => void): void {
+  if (f.from) add("c.end_date >= ?::date", f.from);
+  if (f.to) add("c.start_date <= ?::date", f.to);
 }
 
 /** Earliest claim first (the order a planner works through a season). Cursor = an opaque offset. */
@@ -85,6 +93,7 @@ export async function listConflicts(pid: string, f: ConflictFilter): Promise<Pag
   if (f.type) add("c.type = ?", f.type);
   if (f.berthId) add("c.berth_id = ?", f.berthId);
   if (f.q?.trim()) add("(c.title ILIKE ? OR c.berth_label ILIKE ?)", `%${f.q.trim()}%`);
+  window(f, add);
   params.push(limit + 1, offset);
   const { rows } = await q.query<ConflictRowDb>(
     `${SELECT} WHERE ${where.join(" AND ")} ORDER BY c.start_date, c.end_date, c.id
@@ -97,19 +106,25 @@ export async function listConflicts(pid: string, f: ConflictFilter): Promise<Pag
   };
 }
 
-export async function conflictSummary(pid: string): Promise<ConflictSummary> {
+export async function conflictSummary(pid: string, f: { from?: ISODate; to?: ISODate } = {}): Promise<ConflictSummary> {
   const q = getDb();
   await requireProject(q, pid);
+  // Same window as the list, so the counts on the screen describe the rows on the screen. Called with no window
+  // (the nav badge) these are the whole backlog.
+  const params: unknown[] = [pid];
+  const win: string[] = [];
+  window(f, (sql, v) => { params.push(v); win.push(sql.replace("?", `$${params.length}`)); });
+  const W = win.length ? ` AND ${win.join(" AND ")}` : "";
   const [status, types, berths] = await Promise.all([
     q.query<{ status: string; n: number }>(
-      "SELECT status, count(*)::int AS n FROM conflict WHERE project_id = $1 AND status <> 'staged' GROUP BY status", [pid]),
+      `SELECT c.status, count(*)::int AS n FROM conflict c WHERE c.project_id = $1 AND c.status <> 'staged'${W} GROUP BY c.status`, params),
     q.query<{ type: ConflictType; n: number }>(
-      "SELECT type, count(*)::int AS n FROM conflict WHERE project_id = $1 AND status = 'open' GROUP BY type", [pid]),
+      `SELECT c.type, count(*)::int AS n FROM conflict c WHERE c.project_id = $1 AND c.status = 'open'${W} GROUP BY c.type`, params),
     q.query<{ berth_id: string | null; berth_name: string | null; n: number }>(
       `SELECT c.berth_id, coalesce(be.name, c.berth_name) AS berth_name, count(*)::int AS n
        FROM conflict c LEFT JOIN berth be ON be.id = c.berth_id
-       WHERE c.project_id = $1 AND c.status = 'open'
-       GROUP BY c.berth_id, coalesce(be.name, c.berth_name) ORDER BY n DESC, berth_name NULLS LAST`, [pid]),
+       WHERE c.project_id = $1 AND c.status = 'open'${W}
+       GROUP BY c.berth_id, coalesce(be.name, c.berth_name) ORDER BY n DESC, berth_name NULLS LAST`, params),
   ]);
   const by = (s: string) => status.rows.find((r) => r.status === s)?.n ?? 0;
   const byType = Object.fromEntries(CONFLICT_TYPES.map((t) => [t, 0])) as Record<ConflictType, number>;
@@ -173,9 +188,15 @@ export async function dismissConflicts(pid: string, input: DismissConflictsInput
       ? await q.query(
           `UPDATE conflict SET status = 'dismissed', resolution_note = $3, resolved_at = now()
            WHERE project_id = $1 AND status = 'open' AND id = ANY($2::uuid[])`, [pid, input.ids, reason])
-      : await q.query(
-          `UPDATE conflict SET status = 'dismissed', resolution_note = $3, resolved_at = now()
-           WHERE project_id = $1 AND status = 'open' AND type = $2`, [pid, input.type, reason]);
+      : await (async () => {
+          // same touch test as the list, so the count in the button is the count that gets dismissed
+          const params: unknown[] = [pid, input.type, reason];
+          const win: string[] = [];
+          window(input, (sql, v) => { params.push(v); win.push(sql.replace("?", `$${params.length}`).replace("c.", "")); });
+          return q.query(
+            `UPDATE conflict SET status = 'dismissed', resolution_note = $3, resolved_at = now()
+             WHERE project_id = $1 AND status = 'open' AND type = $2${win.length ? ` AND ${win.join(" AND ")}` : ""}`, params);
+        })();
     return { dismissed: r.rowCount };
   });
 }

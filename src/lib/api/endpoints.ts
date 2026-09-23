@@ -13,7 +13,8 @@ export type BookingsFilter = {
   from: T.ISODate; to: T.ISODate; berthId?: T.Id; vesselId?: T.Id;
   occupantType?: T.OccupantType; q?: string; includeCancelled?: boolean;
 };
-export type ConflictsFilter = { type?: T.ConflictType; status?: T.ConflictStatus; berthId?: T.Id; q?: string; cursor?: string; limit?: number };
+export type ConflictsFilter = { type?: T.ConflictType; status?: T.ConflictStatus; berthId?: T.Id; q?: string;
+  from?: T.ISODate; to?: T.ISODate; cursor?: string; limit?: number };
 
 // everything else is scoped: const p = inProject(pid); p.getSchedule(from, to)
 export const inProject = (pid: T.Id) => {
@@ -52,7 +53,7 @@ export const inProject = (pid: T.Id) => {
       api<T.AvailabilityResult>(`${P}/availability?${qs(q)}`),
 
     listConflicts:    (f: ConflictsFilter) => api<T.Page<T.Conflict>>(`${P}/conflicts?${qs(f)}`),
-    conflictSummary:  () => api<T.ConflictSummary>(`${P}/conflicts/summary`),
+    conflictSummary:  (w: { from?: T.ISODate; to?: T.ISODate } = {}) => api<T.ConflictSummary>(`${P}/conflicts/summary?${qs(w)}`),
     resolveConflict:  (id: T.Id, body: T.ResolveConflictInput) =>
       api<T.Conflict>(`${P}/conflicts/${id}/resolve`, { method: "POST", json: body }),
     dismissConflicts: (body: T.DismissConflictsInput) =>

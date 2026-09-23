@@ -180,6 +180,38 @@ describe("conflicts", () => {
     expect((await listConflicts(pid, { q: "drift" })).items.map((c) => c.type)).toEqual(["VESSEL_TOO_LONG"]);
   });
 
+  it("a date window keeps the claims that TOUCH it, and the counts follow the same dates", async () => {
+    await committed();
+    // the three open claims: OVERLAP 28–30 Apr, VESSEL_TOO_LONG 1–3 Jun, NO_BERTH 1–3 Aug 2008
+    const titles = async (f: object) => (await listConflicts(pid, f)).items.map((c) => c.type);
+    expect(await titles({ from: "2008-06-01", to: "2008-12-31" })).toEqual(["VESSEL_TOO_LONG", "NO_BERTH"]);
+    expect(await titles({ from: "2008-01-01", to: "2008-05-31" })).toEqual(["OVERLAP"]);
+    expect(await titles({ to: "2008-04-28" })).toEqual(["OVERLAP"]);          // open-ended start
+    expect(await titles({ from: "2008-08-03" })).toEqual(["NO_BERTH"]);       // open-ended end, last day counts
+    expect(await titles({ from: "2009-01-01", to: "2009-12-31" })).toEqual([]);
+    expect(await titles({})).toHaveLength(3);                                  // no window = the whole backlog
+
+    // touching one day at either end is enough, like a booking
+    expect(await titles({ from: "2008-04-30", to: "2008-04-30" })).toEqual(["OVERLAP"]);
+    expect(await titles({ from: "2008-04-29", to: "2008-04-29" })).toEqual(["OVERLAP"]);
+
+    // the summary beside the list is windowed the same way; the nav badge asks for no window and sees all 3
+    const w = await conflictSummary(pid, { from: "2008-06-01", to: "2008-12-31" });
+    expect(w.open).toBe(2);
+    expect(w.byType).toMatchObject({ OVERLAP: 0, VESSEL_TOO_LONG: 1, NO_BERTH: 1 });
+    expect((await conflictSummary(pid)).open).toBe(3);
+  });
+
+  it("a windowed bulk dismiss drops only the claims in that window", async () => {
+    await committed();
+    // two NO_BERTH claims exist in the file; only the Aug 2008 one is inside the imported window
+    expect(await dismissConflicts(pid, { type: "NO_BERTH", from: "2009-01-01", to: "2009-12-31" })).toEqual({ dismissed: 0 });
+    expect((await conflictSummary(pid)).open).toBe(3);                       // nothing outside the window was touched
+    expect(await dismissConflicts(pid, { type: "NO_BERTH", from: "2008-01-01", to: "2008-12-31" })).toEqual({ dismissed: 1 });
+    expect((await conflictSummary(pid)).open).toBe(2);
+    expect(await dismissConflicts(pid, { type: "OVERLAP" })).toEqual({ dismissed: 1 });   // no window = every year, as before
+  });
+
   it("place runs the normal rules: still-blocked → 409 and stays open; elsewhere or on new days → placed", async () => {
     const { npw, sfe } = await committed();
     const [overlap, tooLong] = (await listConflicts(pid, {})).items;

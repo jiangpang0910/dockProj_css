@@ -14,5 +14,5 @@ export const qk = {
   usage: (pid: string) => [pid, "usage"] as const,
   settings: (pid: string) => [pid, "settings"] as const,
   conflicts: (pid: string, f: object) => [pid, "conflicts", f] as const,
-  conflictSummary: (pid: string) => [pid, "conflicts", "summary"] as const,
+  conflictSummary: (pid: string, w: object = {}) => [pid, "conflicts", "summary", w] as const,
 };

@@ -310,7 +310,9 @@ export interface ConflictSummary {
 export type ResolveConflictInput =
   | { action: "place"; berthId: Id; startDate?: ISODate; endDate?: ISODate; vesselLengthFt?: number } // dates default to the claim's
   | { action: "dismiss"; reason?: string };
-export interface DismissConflictsInput { ids?: Id[]; type?: ConflictType; reason?: string }  // ids, or every open one of a type
+// ids, or every open one of a type. With `type`, `from`/`to` narrow it to the window the user is looking at,
+// so "dismiss all 12" dismisses those 12 and not the 148 in other years.
+export interface DismissConflictsInput { ids?: Id[]; type?: ConflictType; from?: ISODate; to?: ISODate; reason?: string }
 
 // ───────────── auto-resolve (CP-SAT) ─────────────
 // The solver PROPOSES berths for the conflicts the user selected; nothing changes until they apply a proposal.
@@ -470,9 +472,15 @@ export const ConflictsQuerySchema = z.object({
   status: z.enum(["open", "placed", "dismissed"]).optional(),   // default: open
   berthId: id.optional(),
   q: z.string().optional(),
+  // A claim is in the window when it TOUCHES it, like a booking: a stay that began before `from` still wants the berth.
+  // Both optional and independent: no dates at all = every conflict, whatever year it is for.
+  from: isoDate.optional(),
+  to: isoDate.optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
 });
+/** The same window, for the counts beside the list. The nav badge asks for no window and gets the whole backlog. */
+export const ConflictSummaryQuerySchema = z.object({ from: isoDate.optional(), to: isoDate.optional() });
 export const ResolveConflictInputSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("place"), berthId: id, startDate: isoDate.optional(), endDate: isoDate.optional(), vesselLengthFt: feet.optional() }),
   z.object({ action: z.literal("dismiss"), reason: z.string().optional() }),
@@ -480,8 +488,11 @@ export const ResolveConflictInputSchema = z.discriminatedUnion("action", [
 export const DismissConflictsInputSchema = z.object({
   ids: z.array(id).min(1).max(500).optional(),
   type: conflictType.optional(),
+  from: isoDate.optional(),
+  to: isoDate.optional(),
   reason: z.string().optional(),
-}).refine((v) => !!v.ids !== !!v.type, "Give either ids or a type.") satisfies z.ZodType<DismissConflictsInput>;
+}).refine((v) => !!v.ids !== !!v.type, "Give either ids or a type.")
+  .refine((v) => !!v.type || (!v.from && !v.to), "from/to only narrow a type dismiss.") satisfies z.ZodType<DismissConflictsInput>;
 
 const days = (max: number) => z.number().int().min(0).max(max);
 export const SolveRequestSchema = z.object({

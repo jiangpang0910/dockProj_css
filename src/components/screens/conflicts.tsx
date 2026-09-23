@@ -14,12 +14,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiRequestError, errorMessage } from "@/lib/api/client";
 import { qk } from "@/lib/api/keys";
-import { formatRange, isISODate } from "@/lib/dates";
+import { addDays, addYears, formatRange, isISODate, startOfMonth } from "@/lib/dates";
 import { ft, occupantLabel, plural } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { OccupantIcon } from "@/components/booking/occupant";
 import { useBookingEditor } from "@/components/booking/booking-editor";
-import { useProjectCtx } from "@/components/project/project-context";
+import { useProjectCtx, useToday } from "@/components/project/project-context";
 import { DEFAULT_SOLVE_OPTIONS, ProposalReview, SolveOptionsPopover, describeOptions, type SolveSettings } from "./auto-resolve";
 import { ErrorBox, PageHeader } from "./page-header";
 
@@ -44,6 +44,15 @@ export function ConflictsScreen() {
   const type = (params.get("type") as ConflictType | null) ?? undefined;
   const status = (params.get("status") as ConflictStatus | null) ?? "open";
   const berthId = params.get("berth") ?? undefined;
+  const today = useToday();
+  // A claim from 1997 is not what someone planning this summer is looking at, so the list opens on the same
+  // year the Events screen does: this month, plus twelve. "All dates" (?all=1) puts the whole backlog back.
+  const allDates = params.get("all") === "1";
+  const defFrom = today ? startOfMonth(today) : "";
+  const defTo = defFrom ? addDays(addYears(defFrom, 1), -1) : "";
+  const from = allDates ? undefined : (params.get("from") ?? defFrom) || undefined;
+  const to = allDates ? undefined : (params.get("to") ?? defTo) || undefined;
+  const windowed = !allDates && !!(from && to);
   const [q, setQ] = useState("");
   const setParam = (k: string, v: string | null) => {
     const next = new URLSearchParams(params);
@@ -51,13 +60,18 @@ export function ConflictsScreen() {
     router.replace(`${pathname}${next.size ? `?${next}` : ""}`, { scroll: false });
   };
 
-  const summary = useQuery({ queryKey: qk.conflictSummary(pid), queryFn: () => api.conflictSummary() });
-  const filter = { type, status, berthId, q: q.trim() || undefined };
+  const win = windowed ? { from, to } : {};
+  // Until settings arrive there is no default window, and asking now would fetch the whole backlog and then
+  // immediately re-fetch it windowed. Wait for "today" unless the user has explicitly asked for all dates.
+  const ready = allDates || !!from;
+  const summary = useQuery({ queryKey: qk.conflictSummary(pid, win), queryFn: () => api.conflictSummary(win), enabled: ready });
+  const filter = { type, status, berthId, q: q.trim() || undefined, ...win };
   const list = useInfiniteQuery({
     queryKey: qk.conflicts(pid, filter),
     queryFn: ({ pageParam }) => api.listConflicts({ ...filter, cursor: pageParam ?? undefined, limit: 25 }),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextCursor,
+    enabled: ready,
     placeholderData: keepPreviousData,   // switching filters keeps the old rows on screen instead of a blank list
   });
   const items = useMemo(() => list.data?.pages.flatMap((p) => p.items) ?? [], [list.data]);
@@ -104,7 +118,12 @@ export function ConflictsScreen() {
   return (
     <div className="mx-auto max-w-5xl space-y-5 p-3 sm:p-5">
       <PageHeader title="Conflicts"
-        sub="Rows from your uploads that read fine but couldn't be placed as written. Place each on a berth, dismiss it, or tick several and let Auto-resolve propose berths. Nothing here is on the schedule yet." />
+        sub="Rows of the workbook that read fine but couldn't be placed as written. Place each on a berth, dismiss it, or tick several and let Auto-resolve propose berths. Nothing here is on the schedule yet." />
+      <p className="-mt-3 text-sm text-ink-muted">
+        {windowed
+          ? <>Showing claims that touch <span className="num">{formatRange(from!, to!)}</span>. Counts below follow the same dates.</>
+          : <>Showing every claim in the workbook, from the first year to the last.</>}
+      </p>
 
       {/* totals by status */}
       <div className="grid grid-cols-3 divide-x rounded-xl border bg-surface">
@@ -133,6 +152,15 @@ export function ConflictsScreen() {
           {s?.byBerth.filter((b) => b.berthId).map((b) => <option key={b.berthId} value={b.berthId!}>{b.berthName} ({b.open})</option>)}
         </select>
         <Input aria-label="Search" placeholder="Search vessel or title" value={q} onChange={(e) => setQ(e.target.value)} className="h-8 w-48" />
+        <span className="flex items-center gap-1.5 text-sm text-ink-muted">
+          <Input aria-label="Conflicts from" type="date" className="num h-8 w-36" value={from ?? ""} disabled={allDates}
+            onChange={(e) => setParam("from", e.target.value || null)} />
+          <span aria-hidden>–</span>
+          <Input aria-label="Conflicts to" type="date" className="num h-8 w-36" value={to ?? ""} disabled={allDates}
+            onChange={(e) => setParam("to", e.target.value || null)} />
+        </span>
+        <Chip active={allDates} onClick={() => setParam("all", allDates ? null : "1")}
+          title="Every claim in the file, whatever year it is for">All dates</Chip>
         {status === "open" && type && (s?.byType[type] ?? 0) > 0 && (
           <Button variant="ghost" size="sm" className="ml-auto text-signal" onClick={() => setBulk(true)}>
             Dismiss all {plural(s!.byType[type], CONFLICT_LABEL[type].name.toLowerCase())}…
@@ -141,8 +169,8 @@ export function ConflictsScreen() {
       </div>
 
       {list.error ? <ErrorBox message={errorMessage(list.error)} onRetry={() => list.refetch()} /> :
-       list.isLoading ? <div className="h-40 animate-pulse rounded-xl bg-muted" /> :
-       items.length === 0 ? <Empty status={status} filtered={!!(type || berthId || q.trim())} total={s?.open ?? 0} /> : (
+       list.isLoading || !ready ? <div className="h-40 animate-pulse rounded-xl bg-muted" /> :
+       items.length === 0 ? <Empty status={status} filtered={!!(type || berthId || q.trim() || windowed)} total={s?.open ?? 0} /> : (
         <>
           {canSelect && (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border bg-surface px-3 py-2 text-sm">
@@ -174,7 +202,7 @@ export function ConflictsScreen() {
         </Button>
       )}
 
-      {type && <BulkDismiss type={type} n={s?.byType[type] ?? 0} open={bulk} onOpenChange={setBulk}
+      {type && <BulkDismiss type={type} n={s?.byType[type] ?? 0} win={win} open={bulk} onOpenChange={setBulk}
         onDone={() => editSel((m) => { for (const [id, t] of m) if (t === type) m.delete(id); })} />}
 
       {sel.size > 0 && (
@@ -230,12 +258,14 @@ function useRefresh() {
   return () => { for (const k of ["conflicts", "schedule", "bookings", "vessels", "availability"]) qc.invalidateQueries({ queryKey: [pid, k] }); };
 }
 
-function BulkDismiss({ type, n, open, onOpenChange, onDone }: { type: ConflictType; n: number; open: boolean; onOpenChange: (v: boolean) => void; onDone: () => void }) {
+function BulkDismiss({ type, n, win, open, onOpenChange, onDone }: { type: ConflictType; n: number; win: { from?: string; to?: string };
+  open: boolean; onOpenChange: (v: boolean) => void; onDone: () => void }) {
   const { api } = useProjectCtx();
   const refresh = useRefresh();
   const [reason, setReason] = useState("");
   const m = useMutation({
-    mutationFn: () => api.dismissConflicts({ type, reason: reason.trim() || undefined }),
+    // the same window the list is showing, so this dismisses the n in the title and nothing in other years
+    mutationFn: () => api.dismissConflicts({ type, ...win, reason: reason.trim() || undefined }),
     onSuccess: (r) => { toast.success(`Dismissed ${plural(r.dismissed, "conflict")}.`); refresh(); onDone(); onOpenChange(false); },
   });
   return (
@@ -243,7 +273,10 @@ function BulkDismiss({ type, n, open, onOpenChange, onDone }: { type: ConflictTy
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>Dismiss all {plural(n, "“" + CONFLICT_LABEL[type].name + "” conflict")}?</DialogTitle>
-          <DialogDescription>They won&rsquo;t be booked. You can still see them under Dismissed.</DialogDescription>
+          <DialogDescription>
+            {win.from && win.to ? <>Only the ones touching {formatRange(win.from, win.to)}. </> : <>Every one in the workbook, whatever year. </>}
+            They won&rsquo;t be booked. You can still see them under Dismissed.
+          </DialogDescription>
         </DialogHeader>
         <Input autoFocus placeholder="Reason (optional), e.g. historical, not actionable" value={reason} onChange={(e) => setReason(e.target.value)} />
         {m.error && <p className="text-sm text-signal">{errorMessage(m.error)}</p>}
